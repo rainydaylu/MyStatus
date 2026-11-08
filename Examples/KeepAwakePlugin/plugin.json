@@ -1,0 +1,11 @@
+{
+  "id": "com.example.keepawake",
+  "name": "防止休眠",
+  "summary": "示例插件：开启后阻止 Mac 进入睡眠。演示第三方插件的完整写法。",
+  "symbol": "cup.and.saucer.fill",
+  "version": "1.0",
+  "category": "tools",
+  "sortOrder": 400,
+  "apiVersion": 2,
+  "library": "libKeepAwakePlugin.dylib"
+}

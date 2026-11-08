@@ -1,0 +1,8 @@
+{
+  "repository": "Caldis/Mos",
+  "commit": "8a2fd112e2af444c37ca5f65f42e9bd19c08a5c2",
+  "adapter": "mos",
+  "files": {
+    "Mos/ScrollCore/Interpolator.swift": "Sources/MosPlugin/Upstream/Interpolator.swift"
+  }
+}

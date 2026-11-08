@@ -1,0 +1,15 @@
+{
+  "id": "com.statusdeck.codeisland",
+  "name": "CodeIsland",
+  "summary": "插件 4 · wxtsky/CodeIsland 原生刘海面板与会话发现。",
+  "symbol": "terminal",
+  "version": "1.2",
+  "adapterRevision": 2,
+  "category": "tools",
+  "sortOrder": 399,
+  "apiVersion": 2,
+  "library": "libCodeIslandPlugin.dylib",
+  "permissions": [
+    "读取本机 AI 工具的会话记录；可选择接收已配置的 CodeIsland 本机 Hook。"
+  ]
+}

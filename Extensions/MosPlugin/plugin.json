@@ -1,0 +1,15 @@
+{
+  "id": "com.statusdeck.mos",
+  "name": "Mos 平滑滚动",
+  "summary": "插件 3 · 平滑鼠标滚轮、独立反转方向、速度、惯性和应用排除。",
+  "symbol": "computermouse",
+  "version": "1.2",
+  "adapterRevision": 2,
+  "category": "tools",
+  "sortOrder": 397,
+  "apiVersion": 2,
+  "library": "libMosPlugin.dylib",
+  "permissions": [
+    "需要辅助功能权限来处理鼠标滚轮；不改变触控板手势。"
+  ]
+}
