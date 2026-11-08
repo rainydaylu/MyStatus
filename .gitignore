@@ -1,0 +1,17 @@
+.build/
+build/
+.DS_Store
+*.dSYM/
+Extensions/*/.build/
+work/
+
+# Local data and signing material
+.env
+.env.*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.db
+*.p12
+*.mobileprovision
