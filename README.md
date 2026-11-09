@@ -9,13 +9,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/rainydaylu/MyStatus/releases/download/v1.0.0/MyStatus-1.0.0.zip"><img src="docs/images/download-mac-en.svg" width="190" height="40" alt="Download for Mac"></a>
+  <a href="https://github.com/rainydaylu/MyStatus/releases/latest#assets"><img src="docs/images/download-mac-en.svg" width="190" height="40" alt="Download for Mac"></a>
   &nbsp;
   <a href="https://github.com/rainydaylu/MyStatus/releases/latest"><img src="docs/images/github-release-en.svg" width="170" height="40" alt="GitHub Release"></a>
 </p>
 
 <p align="center">
-  <em>v1.0.0 · Apple silicon Macs (M1 or newer) · macOS 13 or later</em>
+  <em>Source v1.0.6 · Apple silicon Macs (M1 or newer) · macOS 13 or later</em>
   <br>
   <a href="README.zh-CN.md">简体中文</a>
 </p>
@@ -39,7 +39,7 @@
 
 ## Getting started
 
-1. **Download and unzip.** Use the download link above, then double-click the ZIP file in Finder.
+1. **Download and unzip.** Choose the MyStatus ZIP under **Assets** on the latest release page, then double-click it in Finder.
 2. **Move the app to Applications.** Drag **MyStatus.app** into the **Applications** folder and open it.
 3. **Open the panel.** Click the MyStatus status icon in the menu bar at the top of your screen. Move your pointer over a card to see more detail.
 
@@ -59,11 +59,11 @@ Start with **Memory**, **Displays**, or **Sound**. The main panel shows the read
 | --- | --- |
 | **CPU** | The bars show recent activity. Blue is work done by your apps and pink is work done by the system. The small rings show individual cores. Hover over the card for CPU and GPU details. |
 | **Memory** | The two rings show memory pressure and memory use. If your Mac feels slow, start with pressure. It shows how hard macOS is working to make room for your apps. The detail view breaks down app, wired, and compressed memory and shows swap use. |
-| **Disk** | See how much space is available and how quickly the disk is reading or writing. Hover over the card to check individual volumes. |
-| **Network** | See your current upload and download rates and their recent history. The detail pane shows traffic totals since launch and the active interfaces. |
-| **Sensors and battery** | Check temperatures, fan speeds, charge, and battery health when your Mac reports them. The battery detail also shows cycle count and power flow where available. |
+| **Disk** | See how much space is available and how quickly the disk is reading or writing. Hover over the card to check individual volumes, per-process disk activity where available, and read/write history. |
+| **Network** | See your current upload and download rates and their recent history. The detail pane shows traffic totals since launch, the active interfaces, and network activity by process where available. |
+| **Sensors and battery** | Check temperatures, fan speeds, charge, and battery health when your Mac reports them. Hover over a fan or sensor reading for its history. The battery detail also shows cycle count and power flow where available. |
 
-> **Per-app activity in v1.0.0.** If **Processes** stays on *Loading* or *Sampling*, open macOS **Activity Monitor** to see activity by app.
+In a detail pane, hover over a supported chart or reading to open a larger history view. Choose a time range from 1 minute to 5 hours where available, then move the pointer over the chart to inspect a sample.
 
 ## Adjust display, sound, and connections
 
@@ -94,7 +94,7 @@ Clipboard history is stored locally in a user-only folder without encryption. Yo
 
 ## Make the panel yours
 
-Use **Edit Controls** to turn cards on or off and drag them into the order you want. You can keep the combined battery, Wi-Fi, and volume icon in the menu bar or enable live readouts for CPU, memory, and network speed.
+Use **Edit Controls** to turn cards on or off and drag them into the order you want. The combined battery, Wi-Fi, and volume icon and live network speeds are on by default. CPU and memory readouts are off by default and can be enabled separately in the menu bar readout settings.
 
 In **Preferences**, choose a light or dark appearance or follow the system setting. Adjust how translucent the cards are, how strongly the background is tinted, and how much the desktop behind the panel is blurred. MyStatus uses Liquid Glass on macOS 26 and a frosted appearance on earlier versions.
 
