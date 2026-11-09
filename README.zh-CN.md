@@ -1,6 +1,8 @@
 # MyStatus
 
-[English](README.md)
+[English](README.md) · **[下载 MyStatus](https://github.com/rainydaylu/MyStatus/releases/download/v1.0.0/MyStatus-1.0.0.zip)** · [发行说明](https://github.com/rainydaylu/MyStatus/releases/tag/v1.0.0)
+
+下载版适用于搭载 Apple 芯片（M1 或更新）的 Mac，系统要求 macOS 13 或更高版本。解压后将 **MyStatus.app** 拖到「应用程序」，打开后点击屏幕顶部菜单栏中的 MyStatus 图标。
 
 开发者：[rainydaylu](https://github.com/rainydaylu)
 
@@ -83,7 +85,7 @@ macOS 15.4 起，系统可能在应用读取剪贴板时询问是否允许。想
 
 ## 构建和运行
 
-当前可从源码构建 `MyStatus.app`。最低系统要求为 macOS 13，macOS 26 可使用原生液态玻璃。
+如需自行构建，可按下面的步骤操作。macOS 26 可使用原生液态玻璃。
 
 从源码构建只需 Xcode Command Line Tools。
 
