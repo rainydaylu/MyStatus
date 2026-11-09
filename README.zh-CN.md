@@ -32,7 +32,7 @@
 <p align="center">
   <img src="docs/images/mystatus-menu-bar.jpg" width="740" alt="MyStatus 菜单栏中的显示器、声音、Wi-Fi、CPU、内存、磁盘和网络卡片">
   <br>
-  <em>MyStatus 菜单栏面板的两个区段。卡片数量和排列顺序可随设置变化。</em>
+  <em>以 MyStatus 菜单栏面板的两个区段合成的玻璃材质示意。</em>
 </p>
 
 ---
@@ -99,9 +99,9 @@
 在 **偏好设置** 中可选择浅色、深色或跟随系统，并调整卡片透明度、背景深度和模糊。macOS 26 使用 Liquid Glass，较早版本使用磨砂效果。
 
 <p align="center">
-  <img src="docs/images/mystatus-light-and-dark.jpg" width="740" alt="同一组 MyStatus CPU 和内存卡片的浅色与深色外观">
+  <img src="docs/images/mystatus-light-and-dark.jpg" width="740" alt="MyStatus CPU 和内存卡片的浅色与深色外观">
   <br>
-  <em>浅色与深色外观对比。实际的玻璃效果也取决于面板后方的背景。</em>
+  <em>浅色与深色材质示意。应用中的玻璃效果会随面板后方的内容变化。</em>
 </p>
 
 ### 可选扩展

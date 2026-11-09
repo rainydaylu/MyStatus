@@ -32,7 +32,7 @@
 <p align="center">
   <img src="docs/images/mystatus-menu-bar.jpg" width="740" alt="MyStatus menu bar panel with display, sound, Wi-Fi, CPU, memory, disk, and network cards">
   <br>
-  <em>Two sections of the MyStatus menu bar panel. The order and number of cards can vary with your setup.</em>
+  <em>Material preview composed from two sections of the MyStatus menu bar panel.</em>
 </p>
 
 ---
@@ -99,9 +99,9 @@ Use **Edit Controls** to turn cards on or off and drag them into the order you w
 In **Preferences**, choose a light or dark appearance or follow the system setting. Adjust how translucent the cards are, how strongly the background is tinted, and how much the desktop behind the panel is blurred. MyStatus uses Liquid Glass on macOS 26 and a frosted appearance on earlier versions.
 
 <p align="center">
-  <img src="docs/images/mystatus-light-and-dark.jpg" width="740" alt="The same native MyStatus CPU and memory cards in light and dark appearance">
+  <img src="docs/images/mystatus-light-and-dark.jpg" width="740" alt="MyStatus CPU and memory cards in light and dark appearance">
   <br>
-  <em>Light and dark appearance. The live glass effect also depends on what’s behind the panel.</em>
+  <em>Light and dark material preview. In the app, the glass samples what’s behind the panel.</em>
 </p>
 
 ### Optional extensions
