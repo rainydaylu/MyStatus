@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/rainydaylu/MyStatus/releases/download/v1.0.0/MyStatus-1.0.0.zip"><img src="docs/images/download-mac-en.svg" width="174" height="40" alt="Download for Mac"></a>
+  <a href="https://github.com/rainydaylu/MyStatus/releases/download/v1.0.0/MyStatus-1.0.0.zip"><img src="docs/images/download-mac-en.svg" width="190" height="40" alt="Download for Mac"></a>
   &nbsp;
-  <a href="https://github.com/rainydaylu/MyStatus/releases/latest"><img src="docs/images/github-release-en.svg" width="159" height="40" alt="GitHub Release"></a>
+  <a href="https://github.com/rainydaylu/MyStatus/releases/latest"><img src="docs/images/github-release-en.svg" width="170" height="40" alt="GitHub Release"></a>
 </p>
 
 <p align="center">
