@@ -1,216 +1,154 @@
-# MyStatus
+<p align="center">
+  <img src="Support/AppIcon.png" width="112" height="112" alt="MyStatus 蓝色玻璃仪表盘图标">
+</p>
 
-[English](README.md) · **[下载 MyStatus](https://github.com/rainydaylu/MyStatus/releases/download/v1.0.0/MyStatus-1.0.0.zip)** · [发行说明](https://github.com/rainydaylu/MyStatus/releases/tag/v1.0.0)
+<h1 align="center">MyStatus</h1>
 
-下载版适用于搭载 Apple 芯片（M1 或更新）的 Mac，系统要求 macOS 13 或更高版本。解压后将 **MyStatus.app** 拖到「应用程序」，打开后点击屏幕顶部菜单栏中的 MyStatus 图标。
+<p align="center">
+  <strong>从菜单栏掌握 Mac 状态。</strong> 查看系统负载，调节屏幕和音量，找回刚才复制的内容。
+</p>
 
-开发者：[rainydaylu](https://github.com/rainydaylu)
+<p align="center">
+  <a href="https://github.com/rainydaylu/MyStatus/releases/download/v1.0.0/MyStatus-1.0.0.zip"><img src="docs/images/download-mac-zh.svg" width="150" height="40" alt="下载 Mac 版"></a>
+  &nbsp;
+  <a href="https://github.com/rainydaylu/MyStatus/releases/latest"><img src="docs/images/github-release-zh.svg" width="140" height="40" alt="查看发行版"></a>
+</p>
 
-一个插件式的 macOS 菜单栏应用，把电脑监控和日常管理放进同一个面板。**每项功能都是一个插件**，可以单独开关；关掉的插件完全不运行，不占资源，也不会请求权限。以后的新功能也可以做成插件加进来。
+<p align="center">
+  <em>v1.0.0 · Apple 芯片 Mac（M1 或更新）· macOS 13 或更新版本</em>
+  <br>
+  <a href="README.md">English</a>
+</p>
 
-部分系统控制功能使用以下项目的代码。
+<p align="center">
+  <a href="#安装与上手">安装与上手</a> &nbsp;·&nbsp;
+  <a href="#查看系统状态">系统状态</a> &nbsp;·&nbsp;
+  <a href="#显示声音与连接">显示与声音</a> &nbsp;·&nbsp;
+  <a href="#查找剪贴板内容">剪贴板</a> &nbsp;·&nbsp;
+  <a href="#自定义面板">自定义</a> &nbsp;·&nbsp;
+  <a href="#从源码构建">源码构建</a>
+</p>
 
-- [MonitorControl](https://github.com/MonitorControl/MonitorControl)（MIT）：通过 DDC/CI 控制外接显示器
-- [Status Trio](https://github.com/lingyired/status-trio)（Apache-2.0）：电池、Wi-Fi、音量、蓝牙和输入法的状态与控制
-- [Fanny](https://github.com/ShahzaibAli02/Fanny-MacOs-FanControl)（MIT）：风扇控制辅助程序的 SMC 后端
+<p align="center">
+  <img src="docs/images/mystatus-menu-bar.jpg" width="740" alt="MyStatus 菜单栏中的显示器、声音、Wi-Fi、CPU、内存、磁盘和网络卡片">
+  <br>
+  <em>MyStatus 菜单栏面板的两个区段。卡片数量和排列顺序可随设置变化。</em>
+</p>
 
-界面的内容和交互参考 iStat Menus：面板分成多栏，每栏是一张独立悬浮的玻璃卡片；鼠标停在某一栏上，就从面板左侧或右侧展开它的详情，哪边屏幕空间大就展开在哪边。材质和控件是 macOS 26 系统原生的 Liquid Glass，更早的系统显示渐变样式。iStat Menus 是闭源软件，这里所有界面都是独立绘制的，没有使用它的代码或素材。
+---
 
-显示器软件音量的思路参考了 [SoundBridge](https://github.com/chenjy16/SoundBridge)：同样是软件调整增益，但这里用 Core Audio Tap，不安装虚拟驱动。它的仓库没有许可证文件，所以没有使用它的代码。
+## 安装与上手
 
-## 内置插件
+1. **下载并解压。** 点击页面顶部的「下载 Mac 版」，在访达里双击 ZIP 文件。
+2. **移入「应用程序」。** 把 **MyStatus.app** 拖到「应用程序」文件夹，然后打开它。
+3. **打开菜单栏面板。** 点击屏幕顶部菜单栏中的 MyStatus 状态图标。把鼠标移到任意卡片上，即可查看详情。
 
-从菜单栏图标打开面板，点底部「编辑控制」即可调整栏目、开关和排序。首次运行按屏幕可用高度选择默认栏目。
+可以先看看 **内存**、**显示器** 或 **声音**。主面板显示常用读数和控制项，详情面板里还有图表、设备列表和更多设置。点击底部的 **编辑控制**，就能选择要显示的卡片。
 
-| 分类 | 插件 | 默认 | 内容 |
-| --- | --- | --- | --- |
-| 控制 | 声音 | 开 | 主音量，切换输出和输入设备，显示器的 DDC 或软件音量 |
-| 控制 | 显示器 | 开 | 外接显示器的亮度和对比度，内建屏亮度，无 DDC 时用软件调暗 |
-| 控制 | Wi-Fi | 开 | 开关 Wi-Fi，查看信号、信道、速率和安全性 |
-| 控制 | 蓝牙 | 开 | 开关蓝牙，连接或断开设备，查看设备电量 |
-| 控制 | 输入法 | 开 | 切换输入法 |
-| 控制 | 键盘亮度和音量键 | 开 | F1、F2 调外接显示器亮度，F10、F11、F12 调显示器音量（需要辅助功能权限） |
-| 工具 | 剪贴板 | 开 | 复制历史，搜索、置顶，全局快捷键 |
-| 监控 | CPU 与 GPU | 开 | 占用、每核负载、频率、功耗、占用最高的应用 |
-| 监控 | 内存 | 开 | 内存压力、用量明细、交换空间、占用最多的应用 |
-| 监控 | 磁盘 | 开 | 各卷可用空间、读写速度 |
-| 监控 | 网络 | 开 | 上传和下载速度、累计流量、网络接口 |
-| 监控 | 传感器 | 开 | 温度、风扇读数和转速控制、功耗 |
-| 监控 | 电池 | 开 | 电量、健康度、循环次数、电量流向、低电量模式、已连接设备的电量 |
-| 菜单栏 | 三合一状态图标 | 开 | 圆环是电池，中间是 Wi-Fi，底部圆点是音量；在图标上滚动可调音量 |
-| 菜单栏 | 菜单栏读数 | 关 | 持续显示网络速度、CPU 和内存 |
+> **首次打开。** 如果 macOS 提示无法验证开发者，请参阅 [Apple 的安全打开应用指南](https://support.apple.com/zh-cn/102445)。此发行包未经 Apple 公证。
 
-如果所有菜单栏插件都关闭，会保留一个普通图标，确保始终能打开面板。
+## 查看系统状态
 
-## 控制显示器的音频
+<p align="center">
+  <img src="docs/images/mystatus-system-details.jpg" width="740" alt="MyStatus 的 CPU、GPU 图表，以及内存压力和内存用量环形图">
+  <br>
+  <em>左侧是 CPU 和 GPU 详情，右侧是内存压力和用量。</em>
+</p>
 
-macOS 不能调节 HDMI 和 DisplayPort 设备的音量。MyStatus 按这个顺序处理：
+| 卡片 | 怎么看 |
+| --- | --- |
+| **CPU** | 柱状图显示最近的使用情况，蓝色是用户进程，粉色是系统进程。下方小圆环对应各个核心。将鼠标移到卡片上可展开 CPU 和 GPU 详情。 |
+| **内存** | 两个圆环分别显示内存压力和用量。如果 Mac 变慢，可以先看压力，了解系统为应用腾出内存的难度。详情还列出应用内存、联动内存、压缩内存和交换空间用量。 |
+| **磁盘** | 查看剩余空间和读写速度，展开详情可分卷查看。 |
+| **网络** | 查看当前上传、下载速度以及近期曲线。详情里可查看启动以来的流量和正在使用的网络接口。 |
+| **传感器与电池** | 根据 Mac 支持的项目，查看温度、风扇转速、电量和电池健康度。电池详情还可显示循环次数和供电情况。 |
 
-1. **DDC**：第一次发现显示器时，把音量改动几格、读回确认后再恢复，结果会记住。
-2. **软件音量**：如果显示器不响应 DDC（比如 Dell U2723QX），直接拖动音量滑块就能调节。它用 macOS 14.2 起的 Core Audio Tap 捕获系统声音，调整增益后再送到显示器，不需要安装虚拟声卡。
+> **v1.0.0 的进程读数。** 如果 **进程** 一直显示 *加载中* 或 *采样中*，可以打开 macOS 的 **活动监视器** 查看各应用的活动。
 
-第一次使用软件音量时，macOS 会询问“系统录音”权限。声音不会被录制或保存。应用退出或崩溃时，macOS 会立即恢复正常的声音路径，这时声音回到显示器自身的音量，可能比滑块设定的更响。显示器插拔或休眠唤醒后，音频路径会自动重建。
+## 显示声音与连接
 
-## 键盘按键
+主面板上可以直接拖动 **显示器** 和 **声音** 滑块。展开详情即可确认正在调节的显示器或音频设备。
 
-系统自己的亮度和音量键对外接显示器不起作用，所以由“键盘亮度和音量键”插件接管。它需要辅助功能权限，授权后马上生效，不用重启。
+<p align="center">
+  <img src="docs/images/mystatus-display-and-wifi.jpg" width="740" alt="MyStatus 显示器和 Wi-Fi 详情，含亮度、分辨率、信号和信道">
+  <br>
+  <em>把鼠标移到显示器或 Wi-Fi 卡片上，即可展开对应详情。</em>
+</p>
 
-| 按键 | 什么时候由 MyStatus 处理 | 其他情况 |
-| --- | --- | --- |
-| F1、F2 | 鼠标所在的屏幕是外接显示器（Apple 显示器除外） | 交给系统：没有外接显示器，或鼠标在内建屏上时，电脑亮度照常调节 |
-| F10、F11、F12 | 当前输出设备用 DDC 或软件音量 | 交给系统：内建扬声器、耳机等 macOS 能调的设备照常工作 |
+- **显示器。** 可调节内建屏幕及兼容外接显示器的亮度。部分外接显示器也支持对比度控制，具体取决于显示器和连接方式。
+- **声音。** 可切换音频输入和输出设备，也可调节兼容的 HDMI 或 DisplayPort 音频输出。显示器无法接收音量指令时，macOS 14.2 或更新版本可对受支持的输出使用 **软件音量**。
+- **Wi-Fi 和蓝牙。** 查看连接状态、Wi-Fi 信号和信道，以及兼容蓝牙设备的电量。要连接另一条 Wi-Fi 网络，请打开 **系统设置**。
+- **键盘亮度和音量键。** 开启后可用键盘调节受支持的外接显示器亮度和音频输出音量。启用此功能时，macOS 会要求授予辅助功能权限。
 
-按住 `⌥⇧` 再按键可以小幅调节。按键时音量和亮度滑块会同步移动；面板关着时，屏幕右上角会显示当前数值。
+## 查找剪贴板内容
 
-## 外观
+按 <kbd>Control</kbd> + <kbd>Option</kbd> + <kbd>V</kbd> 打开剪贴板历史。可以按内容搜索，按类型或来源应用筛选，也可以置顶常用条目。选中条目后按 <kbd>Return</kbd> 再次使用。如果内容已复制到剪贴板，可在目标位置按 <kbd>Command</kbd> + <kbd>V</kbd> 粘贴。
 
-在设置的“通用”页里切换。打开“自动切换”后跟随 macOS 的外观，macOS 变化时一起变；关闭后用“浅色”“深色”按钮固定一种。默认是自动切换。
+<p align="center">
+  <img src="docs/images/mystatus-clipboard-history.jpg" width="428" alt="MyStatus 剪贴板预览，包含示例文件、笔记、链接、颜色和代码">
+  <br>
+  <em>剪贴板预览使用应用内置的示例条目。</em>
+</p>
 
-在声音插件的设置里，可以手动指定优先用哪种方式，或重新检测显示器。
+剪贴板历史保存在本机仅当前用户可访问的文件夹中，采用未加密存储。你可以暂停记录、清除历史，或排除指定应用。来源应用标记为保密或临时的内容会自动跳过。
 
-## 剪贴板
+## 自定义面板
 
-- 记录文本、代码、链接、颜色、图片和文件，并保留原始格式，再次粘贴时和当初复制的一样。
-- 默认快捷键 `⌃⌥V` 打开历史窗口：`↑↓` 选择，`↩` 复制，`⌘P` 置顶，`⌘⌫` 删除。之后按 `⌘V` 粘贴。
-- 按来源应用、内容和类型搜索或筛选。
+在 **编辑控制** 中，可以开关卡片或拖动排序。菜单栏可显示电池、Wi-Fi 和音量的组合图标，也可开启 CPU、内存和网络速度的实时读数。
 
-隐私：
+在 **偏好设置** 中可选择浅色、深色或跟随系统，并调整卡片透明度、背景深度和模糊。macOS 26 使用 Liquid Glass，较早版本使用磨砂效果。
 
-- **只保存在这台 Mac 上**，没有联网功能，也不进备份。文件夹只有当前用户能读，但**没有加密**。
-- **不记录**密码管理器标记为保密或临时的内容（遵循 nspasteboard.org 的约定），这些内容的内容本身都不会被读取。
-- **不记录**屏蔽名单里的应用。默认包含钥匙串、密码和常见的密码管理器，可以在设置里增减。
-- 可以随时暂停记录、清空历史。
+<p align="center">
+  <img src="docs/images/mystatus-light-and-dark.jpg" width="740" alt="同一组 MyStatus CPU 和内存卡片的浅色与深色外观">
+  <br>
+  <em>浅色与深色外观对比。实际的玻璃效果也取决于面板后方的背景。</em>
+</p>
 
-macOS 15.4 起，系统可能在应用读取剪贴板时询问是否允许。想要自动记录，请在隐私设置里把 MyStatus 设为始终允许。
+### 可选扩展
 
-## 构建和运行
+| 扩展 | 功能 |
+| --- | --- |
+| **悬浮剪贴板（Hanging Clipboard）** | 把截图和复制的图片放在屏幕顶部，便于预览、拖放和标注。 |
+| **Mos** | 让鼠标滚轮更平滑，可单独调整方向，并为不同应用设置例外。 |
+| **CodeIsland** | 在屏幕顶部的小面板中查看受支持的本地 AI 编程会话。 |
 
-如需自行构建，可按下面的步骤操作。macOS 26 可使用原生液态玻璃。
+在 **编辑控制** 中启用需要的扩展，使用 **插件更新** 检查上游版本。悬浮剪贴板和 CodeIsland 需要 macOS 14 或更新版本。
 
-从源码构建只需 Xcode Command Line Tools。
+---
+
+## 权限与常见问题
+
+| 想使用的功能 | 在哪里设置 |
+| --- | --- |
+| 用键盘调节外接显示器或使用 Mos | 在 **系统设置 → 隐私与安全性 → 辅助功能** 中允许 MyStatus。 |
+| 使用软件音量 | 按 macOS 提示允许访问系统音频。应用使用音频流调节播放音量，不保存录音。 |
+| 显示 Wi-Fi 网络名称 | 按提示授予定位权限。未授权时仍可查看连接状态。 |
+| 调节风扇或低电量模式 | 取决于硬件支持，macOS 可能需要管理员授权。 |
+| 反馈问题 | 请附上 macOS 版本、Mac 机型和出现问题的功能。[在 GitHub 提交问题](https://github.com/rainydaylu/MyStatus/issues)。 |
+
+## 从源码构建
+
+<details>
+<summary>构建应用、运行测试与开发插件</summary>
+
+安装包含 Swift 6 或更新版本的 Xcode 命令行工具。构建支持 Liquid Glass 的版本时，请使用 macOS 26 SDK。
 
 ```bash
-scripts/build-app.sh
-```
-
-```bash
+git clone https://github.com/rainydaylu/MyStatus.git
+cd MyStatus
+./scripts/build-app.sh --no-launch
 open build/MyStatus.app
 ```
 
-运行测试：
+运行 `./scripts/test.sh` 执行测试。插件开发可以从 [StatusDeckKit](Packages/StatusDeckKit) 和 [Keep Awake 示例](Examples/KeepAwakePlugin) 开始。第三方插件在 MyStatus 内运行，并拥有应用的权限。
 
-```bash
-scripts/test.sh
-```
+</details>
 
-调试参数（都从 `build/MyStatus.app/Contents/MacOS/mystatus` 运行）：
+---
 
-| 参数 | 作用 |
-| --- | --- |
-| `--snapshot <文件夹>` | 不打开界面，把面板和所有详情窗口渲染成 PNG（渐变样式，示例剪贴板数据） |
-| `--diagnose-audio` | 打印每台显示器的 DDC 读数和每个音频设备的音量属性，加 `--write` 还会试写音量并恢复 |
-| `--diagnose-softvolume` | 用当前输出实际运行软件音量几秒，并打印输入和输出电平 |
-| `--verify-plugin <文件夹>` | 按应用的方式加载并激活一个插件 |
-| `--diagnose-keys` | 打印辅助功能权限状态，并列出 20 秒内按下的媒体键，要从应用包启动 |
-| `--open-panel`、`--open-clipboard`、`--open-settings` | 启动后直接打开面板、剪贴板窗口或设置 |
-| `--open-flyout <栏目 id>` | 和 `--open-panel` 一起用，同时展开这一栏的详情窗口 |
-| `--pin-panel` | 点击其他地方或切换应用时面板不关闭，用来检查界面 |
-| `--sample-clipboard` | 用示例数据代替真实的剪贴板历史 |
-
-## 开发插件
-
-插件是一个 `.deckplugin` 文件夹，放进 `~/Library/Application Support/StatusDeck/Plugins/`，然后在设置里点“重新扫描”。完整示例见 [Examples/KeepAwakePlugin](Examples/KeepAwakePlugin)。
-
-```
-MyPlugin.deckplugin/
-├── plugin.json          # 说明文件，不运行任何代码就能读取
-└── libMyPlugin.dylib    # 插件代码
-```
-
-插件实现 `StatusDeckKit` 里的 `DeckPlugin` 协议，内置插件用的也是这个协议：
-
-```swift
-import StatusDeckKit
-import SwiftUI
-
-@MainActor
-final class MyPlugin: DeckPlugin {
-    let manifest = PluginManifest(
-        id: "com.example.my", name: "我的插件", summary: "一句话说明",
-        symbol: "star", category: .tools
-    )
-
-    func activate(host: any DeckHost) { /* 开始工作 */ }
-    func deactivate() { /* 停止一切，释放资源 */ }
-
-    var sections: [DeckSection] {
-        [DeckSection(id: "my", title: "我的插件") {
-            // 面板里的一栏，始终显示
-            DeckTitleRow("我的插件", value: "正常")
-        } detail: {
-            // 鼠标停在这一栏上时，展开在面板旁边的窗口
-            DeckCard { DeckInfoRow("状态", "正常") }
-        }]
-    }
-}
-
-@_cdecl("statusdeck_plugin_create")
-public func statusdeckPluginCreate() -> UnsafeMutableRawPointer {
-    DeckPluginExport.retained { MyPlugin() }
-}
-```
-
-构建并检查：
-
-```bash
-scripts/build-plugin.sh Examples/KeepAwakePlugin
-```
-
-```bash
-build/MyStatus.app/Contents/MacOS/mystatus --verify-plugin build/plugins/KeepAwakePlugin.deckplugin
-```
-
-`StatusDeckKit` 还提供了圆环、柱状图、镜像图、统计数字、滑块、开关、设备行、应用快捷图标等组件，用它们写的插件会自动适配浅色和深色外观。滑块、开关和按钮都是系统原生控件。插件还可以贡献设置页、菜单栏图标和全局快捷键。
-
-插件接口的版本号是 `apiVersion`（现在是 2），版本不符的插件不会被加载。
-
-### 安全模型
-
-第三方插件的代码运行在应用内，权限和应用相同，**包括读取剪贴板历史**。所以：
-
-- 新发现的插件一律关闭，启用前会明确询问。列出插件时不运行它的任何代码。
-- 启用时会记录动态库的指纹。文件之后如果变化，插件会被关闭，需要重新确认。
-- 如果启动时某个插件导致崩溃，下次启动会自动关闭它并提示。
-- 插件要和应用使用同一版 `DeckPluginAPI.version`，否则拒绝加载。
-
-关闭插件后代码仍留在内存里，直到应用退出（动态库无法安全卸载），但插件已停止工作。
-
-## 权限
-
-只在用到相关功能时才请求权限。“键盘亮度和音量键”默认开启，所以第一次启动时会询问辅助功能权限；不想要可以在设置里关掉这个插件。
-
-| 权限 | 什么时候请求 | 不授权会怎样 |
-| --- | --- | --- |
-| 系统录音 | 开启软件音量 | 显示器音量无法用软件调节 |
-| 粘贴（系统询问） | 剪贴板插件读取新内容时 | 剪贴板历史没有新记录 |
-| 定位 | 点“授权定位以显示网络名称” | 只显示“已连接”，不显示 Wi-Fi 名称（macOS 的要求，应用不读取位置） |
-| 蓝牙 | 第一次开关蓝牙或连接设备 | 设备列表和电量仍可查看，但无法操作 |
-| 辅助功能 | “键盘亮度和音量键”插件启动时 | 按键不控制外接显示器，面板里会显示提示 |
-| 管理员授权 | 首次调节风扇或切换低电量模式时申请，两项共用一次授权 | 风扇继续由 macOS 管理，低电量模式保持当前状态 |
-
-## 已知限制
-
-- **发行包面向 Apple 芯片**。外接显示器的 DDC 支持取决于机型、显示器和连接方式。
-- **依赖私有接口**：DDC、温度（IOHID）、频率和功耗（IOReport）、风扇（SMC）、蓝牙开关和录音权限查询都用了未公开的系统接口。除 DDC 和 CoreDisplay 外都在运行时加载，系统更新移除时对应读数会显示 `--`。软件音量本身用的是公开接口。
-- 预编译 App 使用临时签名，未使用 Developer ID 签名或 Apple 公证。
-- 手动调速要求 Mac 报告有效的风扇转速范围。可在传感器面板恢复系统自动管理。
-- **切换 Wi-Fi 网络要去系统设置**。macOS 没有用已保存密码连接的公开接口，本应用也不处理 Wi-Fi 密码。
-- **不要同时运行 MonitorControl 的按键控制**，否则同一次按键会被处理两次。滑块本身可以共存。
-- **剪贴板没有云同步**，也没有图片压缩、短链等联网动作。这些可以做成插件。
-- 界面支持简体中文、繁體中文、English、Français、Deutsch、日本語和 한국어。
-
-## 代码来源
-
-并入的文件、原始提交和改动见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，许可证原文在 [LICENSES/](LICENSES/)。
-
-随包的 Mos 适配器包含采用 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) 的代码，本发行包供非商业使用。
+<p align="center">
+  由 <a href="https://github.com/rainydaylu">rainydaylu</a> 开发 &nbsp;·&nbsp;
+  <a href="THIRD_PARTY_NOTICES.md">第三方署名与许可证</a>
+  <br>
+  <em>随附的 Mos 代码采用非商业用途许可证。</em>
+</p>

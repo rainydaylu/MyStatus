@@ -9,11 +9,15 @@
 </p>
 
 <p align="center">
-  <strong><a href="https://github.com/rainydaylu/MyStatus/releases/download/v1.0.0/MyStatus-1.0.0.zip">Download MyStatus for Mac</a></strong>
-  &nbsp;·&nbsp; <a href="https://github.com/rainydaylu/MyStatus/releases/tag/v1.0.0">Release notes</a>
-  &nbsp;·&nbsp; <a href="README.zh-CN.md">简体中文</a>
+  <a href="https://github.com/rainydaylu/MyStatus/releases/download/v1.0.0/MyStatus-1.0.0.zip"><img src="docs/images/download-mac-en.svg" width="174" height="40" alt="Download for Mac"></a>
+  &nbsp;
+  <a href="https://github.com/rainydaylu/MyStatus/releases/latest"><img src="docs/images/github-release-en.svg" width="159" height="40" alt="GitHub Release"></a>
+</p>
+
+<p align="center">
+  <em>v1.0.0 · Apple silicon Macs (M1 or newer) · macOS 13 or later</em>
   <br>
-  <em>Apple silicon Macs (M1 or newer) · macOS 13 or later</em>
+  <a href="README.zh-CN.md">简体中文</a>
 </p>
 
 <p align="center">

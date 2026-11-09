@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="140" height="40" viewBox="0 0 140 40" role="img" aria-labelledby="title">
+<title id="title">查看发行版</title>
+<rect x="0.5" y="0.5" width="139" height="39" rx="10" fill="#233C60" stroke="#496689"/>
+<path d="M14.5 12.5h8.8l7.1 7.1-7.1 7.1-8.8-8.8z M18.5 16.4h.1" fill="none" stroke="#FFFFFF" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="40" y="25.3" fill="#FFFFFF" font-size="15" font-weight="650" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei','Noto Sans CJK SC',Arial,sans-serif">查看发行版</text>
+</svg>
