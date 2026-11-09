@@ -64,6 +64,19 @@ private func writePlugin(in directory: URL, name: String = "Sample", id: String 
         #expect(manager.activePlugins.map(\.manifest.id) == ["on"])
     }
 
+    @Test func menuBarReadoutsDefaultToNetworkAndHonorSavedChoices() {
+        let suite = "statusdeck.tests.\(UUID().uuidString)"
+        let store = UserDefaults(suiteName: suite)!
+        defer { store.removePersistentDomain(forName: suite) }
+        let defaults = PluginDefaults(pluginID: "com.statusdeck.statspill", store: store)
+        #expect(StatsPillOption.allCases.filter { $0.isEnabled(in: defaults) } == [.network])
+
+        defaults.set(false, forKey: StatsPillOption.network.rawValue)
+        defaults.set(true, forKey: StatsPillOption.cpu.rawValue)
+        defaults.set(true, forKey: StatsPillOption.memory.rawValue)
+        #expect(StatsPillOption.allCases.filter { $0.isEnabled(in: defaults) } == [.cpu, .memory])
+    }
+
     @Test func switchingOffDeactivatesAndIsRemembered() {
         let plugin = FakePlugin(id: "p")
         let defaults = isolatedDefaults()

@@ -33,7 +33,7 @@ final class WiFiPlugin: BuiltInPlugin {
     }
 }
 
-private func wifiSubtitle(_ wifi: WiFiState) -> String {
+func wifiSubtitle(_ wifi: WiFiState) -> String {
     guard wifi.isAvailable else { return DeckL("不可用") }
     guard wifi.isPoweredOn else { return DeckL("已关闭") }
     guard wifi.isAssociated else { return DeckL("未连接") }
@@ -57,42 +57,71 @@ private struct WiFiRow: View {
     }
 }
 
-private struct WiFiDetail: View {
+struct WiFiDetail: View {
     @ObservedObject var wifi: WiFiController
-    @Environment(\.deckTheme) private var theme
 
     var body: some View {
         let state = wifi.state
-        DeckCard { VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 9) {
-                DeckRoundIcon(state.isPoweredOn ? "wifi" : "wifi.slash", isActive: state.isPoweredOn, size: 26)
-                Text(wifiSubtitle(state))
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(theme.primary)
-                    .lineLimit(1)
-                Spacer()
-                DeckSwitch(isOn: state.isPoweredOn, isEnabled: state.isAvailable) {
-                    wifi.setPower(!state.isPoweredOn)
+        VStack(spacing: 6) {
+            if let name = state.interfaceName {
+                DeckCard {
+                    VStack(alignment: .leading, spacing: 5) {
+                        DeckTitle(DeckL("网络接口"))
+                        DeckInfoRow(DeckL("BSD 名称", "BSD name"), name)
+                        if let address = state.hardwareAddress {
+                            DeckInfoRow(DeckL("MAC 地址", "MAC address"), address)
+                        }
+                    }
                 }
             }
-            if state.isAssociated {
-                if state.ssid == nil {
-                    DeckTextButton(DeckL("授权定位以显示网络名称")) { wifi.requestNameAccess() }
+            DeckCard {
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 9) {
+                        DeckTitle("Wi-Fi")
+                        Spacer()
+                        DeckSwitch(isOn: state.isPoweredOn, isEnabled: state.isAvailable) {
+                            wifi.setPower(!state.isPoweredOn)
+                        }
+                    }
+                    DeckInfoRow(DeckL("网络"), wifiSubtitle(state))
+                    if state.isAssociated {
+                        if state.ssid == nil {
+                            DeckTextButton(DeckL("授权定位以显示网络名称")) { wifi.requestNameAccess() }
+                        }
+                        if let bssid = state.bssid { DeckInfoRow("BSSID", bssid) }
+                        if let standard = state.standard { DeckInfoRow(DeckL("标准"), standard) }
+                        if let rate = state.transmitRate { DeckInfoRow(DeckL("传输速率"), "\(Int(rate.rounded())) Mbps") }
+                        if let rssi = state.rssi { DeckInfoRow("RSSI", "\(rssi) dBm") }
+                        if let noise = state.noise { DeckInfoRow(DeckL("噪声", "Noise"), "\(noise) dBm") }
+                        if let snr = state.signalToNoise { DeckInfoRow("SNR", "\(snr) dB") }
+                        if let channel = state.channel {
+                            DeckInfoRow(DeckL("信道"), [String(channel), state.band, state.channelWidth].compactMap { $0 }.joined(separator: " · "))
+                        }
+                        if let security = state.security { DeckInfoRow(DeckL("安全性"), security) }
+                    }
                 }
-                if let rssi = state.rssi { DeckInfoRow(DeckL("信号"), "\(rssi) dBm") }
-                if let rate = state.transmitRate { DeckInfoRow(DeckL("传输速率"), "\(Int(rate)) Mbps") }
-                if let channel = state.channel {
-                    DeckInfoRow(DeckL("信道"), [String(channel), state.band, state.channelWidth].compactMap { $0 }.joined(separator: " · "))
+            }
+            if let address = state.ipv4 {
+                DeckCard {
+                    VStack(alignment: .leading, spacing: 5) {
+                        DeckTitle("IPv4")
+                        DeckInfoRow(DeckL("IP 地址", "IP address"), address)
+                        if let mask = state.subnetMask { DeckInfoRow(DeckL("子网掩码", "Subnet mask"), mask) }
+                        if let router = state.router { DeckInfoRow(DeckL("路由器"), router) }
+                        ForEach(Array(state.dnsServers.enumerated()), id: \.offset) { index, server in
+                            DeckInfoRow(state.dnsServers.count > 1 ? "DNS \(index + 1)" : "DNS", server)
+                        }
+                    }
                 }
-                if let standard = state.standard { DeckInfoRow(DeckL("标准"), standard) }
-                if let security = state.security { DeckInfoRow(DeckL("安全性"), security) }
-                if let bssid = state.bssid { DeckInfoRow("BSSID", bssid) }
             }
-            HStack {
-                Spacer()
-                DeckTextButton(DeckL("在系统设置中切换网络")) { SystemSettings.open(.wifi) }
+            DeckCard {
+                HStack {
+                    Spacer()
+                    DeckTextButton(DeckL("在系统设置中切换网络")) { SystemSettings.open(.wifi) }
+                }
             }
-        } }
+        }
+        .onAppear { wifi.refresh() }
     }
 }
 
@@ -244,9 +273,6 @@ private struct BluetoothDetail: View {
                         HStack {
                             DeckSubheading(DeckLF("其他设备（%@）", "Other devices (%@)", String(bluetooth.notConnected.count)))
                             Spacer()
-                            Image(systemName: showsOthers ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(theme.secondary)
                         }
                         .padding(.horizontal, 6)
                         .padding(.vertical, 5)

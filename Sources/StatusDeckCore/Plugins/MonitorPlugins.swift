@@ -204,7 +204,7 @@ final class MemoryPlugin: BuiltInPlugin {
     }
 
     override func didActivate() {
-        services.store.sampler.setInterest(owner: manifest.id, whilePanelVisible: [.memory])
+        services.store.sampler.setInterest(owner: manifest.id, always: [.memory])
     }
 
     override func willDeactivate() {
@@ -227,25 +227,44 @@ final class MemoryPlugin: BuiltInPlugin {
 
 private struct MemoryRings: View {
     let memory: MemoryStats
+    var drilldowns: SystemStore? = nil
     @Environment(\.deckTheme) private var theme
 
     var body: some View {
         let total = Double(max(1, memory.total))
         HStack(spacing: 0) {
-            DeckRing(value: memory.pressure, color: pressureColor) {
-                DeckRingPercent(memory.pressure, caption: DeckL("压力"))
+            ringLink(isPressure: true) {
+                DeckRing(value: memory.pressure, color: pressureColor) {
+                    DeckRingPercent(memory.pressure, caption: DeckL("压力"))
+                }
+                .frame(width: 108, height: 108)
+                .frame(maxWidth: .infinity)
             }
-            .frame(width: 108, height: 108)
-            .frame(maxWidth: .infinity)
-            DeckRing(segments: [
-                (Double(memory.app) / total, theme.accent),
-                (Double(memory.wired) / total, theme.magenta),
-                (Double(memory.compressed) / total, theme.amber)
-            ]) {
-                DeckRingPercent(memory.usedFraction, caption: DeckL("内存"))
+            ringLink(isPressure: false) {
+                DeckRing(segments: [
+                    (Double(memory.app) / total, theme.accent),
+                    (Double(memory.wired) / total, theme.magenta),
+                    (Double(memory.compressed) / total, theme.amber)
+                ]) {
+                    DeckRingPercent(memory.usedFraction, caption: DeckL("内存"))
+                }
+                .frame(width: 108, height: 108)
+                .frame(maxWidth: .infinity)
             }
-            .frame(width: 108, height: 108)
-            .frame(maxWidth: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private func ringLink<Ring: View>(isPressure: Bool, @ViewBuilder ring: @escaping () -> Ring) -> some View {
+        if let drilldowns {
+            PanelDrilldownLink(id: isPressure ? "memory.pressure" : "memory.usage",
+                               title: isPressure ? DeckL("内存压力", "Memory pressure") : DeckL("内存构成", "Memory breakdown")) {
+                ring()
+            } detail: {
+                MemoryHistoryView(store: drilldowns, isPressure: isPressure)
+            }
+        } else {
+            ring()
         }
     }
 
@@ -275,13 +294,17 @@ private struct MemoryDetail: View {
         let memory = store.snapshot.memory
         let swapFraction = memory.swapTotal == 0 ? 0 : Double(memory.swapUsed) / Double(memory.swapTotal)
         VStack(spacing: DeckTheme.cardSpacing) {
-            DeckCard { MemoryRings(memory: memory) }
+            DeckCard { MemoryRings(memory: memory, drilldowns: store) }
             DeckCard {
-                VStack(spacing: 3) {
-                    DeckLegendDot(DeckL("App 内存"), Format.bytes(memory.app, binary: true), color: theme.accent)
-                    DeckLegendDot(DeckL("联动内存"), Format.bytes(memory.wired, binary: true), color: theme.magenta)
-                    DeckLegendDot(DeckL("已压缩"), Format.bytes(memory.compressed, binary: true), color: theme.amber)
-                    DeckLegendDot(DeckL("可用"), Format.bytes(memory.available, binary: true), color: theme.track)
+                PanelDrilldownLink(id: "memory.breakdown", title: DeckL("内存构成", "Memory breakdown")) {
+                    VStack(spacing: 3) {
+                        DeckLegendDot(DeckL("App 内存"), Format.bytes(memory.app, binary: true), color: theme.accent)
+                        DeckLegendDot(DeckL("联动内存"), Format.bytes(memory.wired, binary: true), color: theme.magenta)
+                        DeckLegendDot(DeckL("已压缩"), Format.bytes(memory.compressed, binary: true), color: theme.amber)
+                        DeckLegendDot(DeckL("可用"), Format.bytes(memory.available, binary: true), color: theme.track)
+                    }
+                } detail: {
+                    MemoryHistoryView(store: store, isPressure: false)
                 }
             }
             ProcessBlock(entries: store.snapshot.processes.byMemory) { Format.bytes($0.memory, binary: true) }
@@ -409,20 +432,36 @@ private struct DiskDetail: View {
                     }
                 }
             }
-            TransferActivityCard(title: DeckL("磁盘活动", "Disk activity"), firstLabel: DeckL("读取"),
-                                 secondLabel: DeckL("写入"), first: disk.readBytesPerSecond,
-                                 second: disk.writeBytesPerSecond, history: store.history.diskActivity, floor: 1_000_000)
+            PanelDrilldownLink(id: "disk.history", title: DeckL("磁盘活动", "Disk activity")) {
+                DiskActivity(store: store, expanded: false)
+            } detail: {
+                DiskActivity(store: store, expanded: true)
+            }
             DeckCard {
                 VStack(alignment: .leading, spacing: 4) {
                     DeckInfoRow(DeckL("累计读取", "Total read"), Format.bytes(disk.totalReadBytes))
                     DeckInfoRow(DeckL("累计写入", "Total written"), Format.bytes(disk.totalWrittenBytes))
                 }
             }
-            ProcessTransferBlock(source: .disk, firstLabel: DeckL("读取"), secondLabel: DeckL("写入"))
+            ProcessTransferBlock(monitor: store.processTransfers, source: .disk,
+                                 firstLabel: DeckL("读取"), secondLabel: DeckL("写入"))
             DeckCard {
                 DeckAppShortcutRow(paths: [UtilityApps.diskUtility, UtilityApps.activityMonitor], onOpen: onOpenApp)
             }
         }
+    }
+}
+
+private struct DiskActivity: View {
+    @ObservedObject var store: SystemStore
+    let expanded: Bool
+
+    var body: some View {
+        let disk = store.snapshot.disk
+        TransferActivityCard(title: DeckL("磁盘活动", "Disk activity"), firstLabel: DeckL("读取"),
+                             secondLabel: DeckL("写入"), first: disk.readBytesPerSecond,
+                             second: disk.writeBytesPerSecond, history: store.history.diskActivity,
+                             floor: 1_000_000, expanded: expanded)
     }
 }
 
@@ -446,6 +485,11 @@ final class NetworkPlugin: BuiltInPlugin {
 
     override func willDeactivate() {
         services.store.sampler.removeInterest(owner: manifest.id)
+        services.wifi.poller.set(owner: manifest.id, interval: nil)
+    }
+
+    override func panelVisibilityChanged(_ isVisible: Bool) {
+        services.wifi.poller.set(owner: manifest.id, interval: isVisible ? 5 : nil)
     }
 
     override var sections: [DeckSection] {
@@ -489,13 +533,29 @@ private struct NetworkDetail: View {
     @ObservedObject var store: SystemStore
     @ObservedObject var wifi: WiFiController
     let onOpenApp: () -> Void
+    @Environment(\.deckTheme) private var theme
 
     var body: some View {
         let network = store.snapshot.network
         VStack(spacing: DeckTheme.cardSpacing) {
-            TransferActivityCard(title: DeckL("网络活动", "Network activity"), firstLabel: DeckL("上传"),
-                                 secondLabel: DeckL("下载"), first: network.uploadBytesPerSecond,
-                                 second: network.downloadBytesPerSecond, history: store.history.networkActivity, floor: 64_000)
+            PanelDrilldownLink(id: "network.history", title: DeckL("网速历史", "Speed history")) {
+                NetworkActivity(store: store, expanded: false)
+            } detail: {
+                NetworkActivity(store: store, expanded: true)
+            }
+            DeckCard {
+                PanelDrilldownLink(id: "network.wifi", title: "Wi-Fi") {
+                    HStack(spacing: 8) {
+                        Image(systemName: wifi.state.isPoweredOn ? "wifi" : "wifi.slash")
+                            .foregroundStyle(theme.accent)
+                        Text("Wi-Fi")
+                        Spacer(minLength: 6)
+                        Text(wifiSubtitle(wifi.state)).foregroundStyle(theme.secondary).lineLimit(1)
+                    }
+                } detail: {
+                    WiFiDetail(wifi: wifi)
+                }
+            }
             DeckCard {
                 VStack(alignment: .leading, spacing: 3) {
                     DeckTitle(DeckL("本次运行累计", "Since launch"))
@@ -506,9 +566,6 @@ private struct NetworkDetail: View {
             DeckCard {
                 VStack(alignment: .leading, spacing: 3) {
                     DeckTitle(DeckL("网络接口"))
-                    if wifi.state.isAssociated {
-                        DeckInfoRow("Wi-Fi", wifi.state.ssid ?? DeckL("已连接", "Connected"))
-                    }
                     ForEach(network.interfaces) { interface in
                         DeckInfoRow(interface.isPrimary ? "\(interface.name)（主要）" : interface.name, interface.ipv4 ?? interface.ipv6 ?? "—")
                     }
@@ -517,12 +574,26 @@ private struct NetworkDetail: View {
                     }
                 }
             }
-            ProcessTransferBlock(source: .network, firstLabel: DeckL("上传"), secondLabel: DeckL("下载"))
+            ProcessTransferBlock(monitor: store.processTransfers, source: .network,
+                                 firstLabel: DeckL("上传"), secondLabel: DeckL("下载"))
             DeckCard {
                 DeckAppShortcutRow(paths: [UtilityApps.activityMonitor, UtilityApps.console, UtilityApps.terminal], onOpen: onOpenApp)
             }
         }
         .onAppear { wifi.refresh() }
+    }
+}
+
+private struct NetworkActivity: View {
+    @ObservedObject var store: SystemStore
+    let expanded: Bool
+
+    var body: some View {
+        let network = store.snapshot.network
+        TransferActivityCard(title: expanded ? DeckL("网速历史", "Speed history") : DeckL("网络活动", "Network activity"),
+                             firstLabel: DeckL("上传"), secondLabel: DeckL("下载"),
+                             first: network.uploadBytesPerSecond, second: network.downloadBytesPerSecond,
+                             history: store.history.networkActivity, floor: 64_000, expanded: expanded)
     }
 }
 
@@ -541,7 +612,7 @@ final class SensorsPlugin: BuiltInPlugin {
     }
 
     override func didActivate() {
-        services.store.sampler.setInterest(owner: manifest.id, whilePanelVisible: [.sensors, .soc, .battery])
+        services.store.sampler.setInterest(owner: manifest.id, always: [.sensors, .soc, .battery])
     }
 
     override func willDeactivate() {
@@ -641,65 +712,96 @@ private struct SensorsRow: View {
 private struct SensorsDetail: View {
     @ObservedObject var store: SystemStore
     let fans: FanController
-    @State private var showsAll = false
+    @State private var showsTemperatures = false
     @Environment(\.deckTheme) private var theme
 
     var body: some View {
         let snapshot = store.snapshot
         let sensors = snapshot.sensors
         VStack(spacing: DeckTheme.cardSpacing) {
-            DeckCard {
-                VStack(alignment: .leading, spacing: 3) {
-                    DeckTitle(DeckL("温度"))
-                    if sensors.temperatures.isEmpty {
-                        DeckInfoRow(DeckL("温度"), "--")
-                    }
-                    ForEach(TemperatureReading.Group.allCases, id: \.self) { group in
-                        if let average = sensors.average(group) {
-                            DeckInfoRow(group.title, Format.degrees(average))
-                        }
-                    }
-                }
-            }
             if !sensors.fans.isEmpty {
-                DeckCard { FanControls(controller: fans, detailed: false, readings: sensors.fans) }
+                DeckCard { FanControls(controller: fans, detailed: false, readings: sensors.fans, historyStore: store) }
             }
-            DeckCard {
-                VStack(alignment: .leading, spacing: 3) {
-                    DeckTitle(DeckL("功耗"))
-                    DeckInfoRow("CPU", Format.watts(snapshot.soc.cpuWatts))
-                    DeckInfoRow("GPU", Format.watts(snapshot.soc.gpuWatts))
-                    if let ane = snapshot.soc.aneWatts { DeckInfoRow(DeckL("神经引擎"), Format.watts(ane)) }
-                    if let dram = snapshot.soc.dramWatts { DeckInfoRow(DeckL("内存"), Format.watts(dram)) }
-                    if let system = sensors.systemWatts { DeckInfoRow(DeckL("整机"), Format.watts(system)) }
-                }
-            }
-            if !sensors.temperatures.isEmpty {
+            readings(DeckL("电流", "Current"), current: snapshot.battery, source: \.battery,
+                     fields: [("battery.amps", DeckL("电池"), \.amps)], format: { sensorNumber($0, unit: "A") })
+            if snapshot.soc != SoCStats() || sensors.systemWatts != nil || snapshot.battery.watts != nil {
                 DeckCard {
                     VStack(alignment: .leading, spacing: 3) {
-                        Button {
-                            showsAll.toggle()
-                        } label: {
-                            HStack {
-                                DeckTitle(DeckLF("全部传感器（%@）", "All sensors (%@)", String(sensors.temperatures.count)))
-                                Spacer()
-                                Image(systemName: showsAll ? "chevron.up" : "chevron.down")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(theme.secondary)
-                            }
-                            .contentShape(Rectangle())
+                        DeckTitle(DeckL("功耗"))
+                        sensorRows(current: snapshot.soc, source: \.soc, fields: [
+                            ("power.cpu", "CPU", \.cpuWatts),
+                            ("power.gpu", "GPU", \.gpuWatts),
+                            ("power.ane", DeckL("神经引擎"), \.aneWatts),
+                            ("power.memory", DeckL("内存"), \.dramWatts)
+                        ], format: Format.watts)
+                        sensorRows(current: sensors, source: \.sensors,
+                                   fields: [("power.system", DeckL("整机"), \.systemWatts)], format: Format.watts)
+                        sensorRows(current: snapshot.battery, source: \.battery,
+                                   fields: [("power.battery", DeckL("电池"), \.watts)], format: Format.watts)
+                    }
+                }
+            }
+            readings(DeckL("电压"), current: snapshot.battery, source: \.battery,
+                     fields: [("battery.volts", DeckL("电池"), \.volts)], format: { sensorNumber($0, unit: "V") })
+            readings(DeckL("频率", "Frequency"), current: snapshot.soc, source: \.soc, fields: [
+                ("frequency.performance", DeckL("性能核心"), \.performanceFrequencyMHz),
+                ("frequency.efficiency", DeckL("能效核心"), \.efficiencyFrequencyMHz),
+                ("frequency.gpu", "GPU", \.gpuFrequencyMHz)
+            ], format: Format.gigahertz)
+            DeckCard {
+                VStack(alignment: .leading, spacing: 3) {
+                    Button { showsTemperatures.toggle() } label: {
+                        HStack {
+                            DeckTitle(DeckL("温度"))
+                            Spacer()
+                            Image(systemName: showsTemperatures ? "chevron.up" : "chevron.down")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(theme.secondary)
                         }
-                        .buttonStyle(.plain)
-                        if showsAll {
-                            ForEach(sensors.temperatures) { reading in
-                                DeckInfoRow(reading.name, Format.degrees(reading.celsius))
-                            }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    if showsTemperatures {
+                        if sensors.temperatures.isEmpty {
+                            DeckInfoRow(DeckL("温度"), "--")
+                        }
+                        ForEach(sensors.temperatures) { reading in
+                            SensorHistoryLink(id: "temperature.\(reading.id)", title: reading.name, current: reading.celsius,
+                                              store: store, source: \.sensors,
+                                              measure: { $0.temperatures.first { $0.id == reading.id }?.celsius },
+                                              format: Format.degrees)
                         }
                     }
                 }
             }
         }
     }
+
+    @ViewBuilder
+    private func readings<Value: Equatable>(_ title: String, current: Value, source: KeyPath<History, MonitorHistory<Value>>,
+                                           fields: [(String, String, KeyPath<Value, Double?>)], format: @escaping (Double?) -> String) -> some View {
+        if fields.contains(where: { current[keyPath: $0.2] != nil }) {
+            DeckCard {
+                VStack(alignment: .leading, spacing: 3) {
+                    DeckTitle(title)
+                    sensorRows(current: current, source: source, fields: fields, format: format)
+                }
+            }
+        }
+    }
+
+    private func sensorRows<Value: Equatable>(current: Value, source: KeyPath<History, MonitorHistory<Value>>,
+                                             fields: [(String, String, KeyPath<Value, Double?>)],
+                                             format: @escaping (Double?) -> String) -> some View {
+        ForEach(fields, id: \.0) { id, title, path in
+            SensorHistoryLink(id: id, title: title, current: current[keyPath: path], store: store,
+                              source: source, measure: { $0[keyPath: path] }, format: format)
+        }
+    }
+}
+
+private func sensorNumber(_ value: Double?, unit: String) -> String {
+    value.map { String(format: "%.2f %@", locale: DeckLanguage.current.locale, $0, unit) } ?? "—"
 }
 
 // MARK: - Battery and power
@@ -718,7 +820,7 @@ final class BatteryPlugin: BuiltInPlugin {
     }
 
     override func didActivate() {
-        services.store.sampler.setInterest(owner: manifest.id, whilePanelVisible: [.battery, .sensors])
+        services.store.sampler.setInterest(owner: manifest.id, always: [.battery], whilePanelVisible: [.sensors])
     }
 
     override func willDeactivate() {
@@ -775,32 +877,37 @@ private struct BatteryDetail: View {
         let sensors = store.snapshot.sensors
         VStack(spacing: DeckTheme.cardSpacing) {
             DeckCard {
-                HStack(spacing: 14) {
-                    DeckRing(value: Double(battery.percent) / 100, color: batteryColor(battery, theme: theme) ?? theme.accent) {
-                        DeckRingPercent(Double(battery.percent) / 100, caption: DeckL("电量"))
-                    }
-                    .frame(width: 108, height: 108)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(battery.statusText)
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(theme.primary)
-                        if let minutes = battery.minutesRemaining {
-                            Text((battery.isCharging ? DeckL("充满还需", "Time until full") : DeckL("剩余", "Time remaining")) + " " + Format.duration(TimeInterval(minutes) * 60))
-                                .font(.system(size: 12))
-                                .foregroundStyle(theme.secondary)
+                VStack(spacing: 6) {
+                PanelDrilldownLink(id: "battery.details", title: DeckL("电池详情", "Battery details")) {
+                    HStack(spacing: 12) {
+                        let charge = Double(battery.percent) / 100
+                        DeckRing(value: charge, color: batteryColor(battery, theme: theme) ?? theme.accent) {
+                            DeckRingPercent(charge, caption: DeckL("电量"))
                         }
+                        .frame(width: 98, height: 98)
+                        .frame(maxWidth: .infinity)
+                        DeckRing(value: battery.health ?? 0, color: theme.magenta) {
+                            if let health = battery.health {
+                                DeckRingPercent(health, caption: DeckL("电池健康"))
+                            } else {
+                                Text("—").foregroundStyle(theme.secondary)
+                            }
+                        }
+                        .frame(width: 98, height: 98)
+                        .frame(maxWidth: .infinity)
                     }
-                    Spacer(minLength: 0)
+                } detail: {
+                    BatteryDiagnostics(store: store)
+                }
+                DeckInfoRow(battery.statusText, battery.minutesRemaining.map { minutes in
+                    (battery.isCharging ? DeckL("充满还需", "Time until full") : DeckL("剩余", "Time remaining"))
+                        + " " + Format.duration(TimeInterval(minutes) * 60)
+                } ?? "")
                 }
             }
-            DeckCard {
-                VStack(spacing: 3) {
-                    if let health = battery.health { DeckInfoRow(DeckL("电池健康"), Format.percent(health)) }
-                    if let cycles = battery.cycleCount { DeckInfoRow(DeckL("循环次数"), "\(cycles)") }
-                    if let temperature = battery.temperatureCelsius { DeckInfoRow(DeckL("温度"), String(format: "%.1f°", temperature)) }
-                    if let volts = battery.volts { DeckInfoRow(DeckL("电压"), String(format: "%.1f V", volts)) }
-                }
-            }
+            MonitorHistoryCard(history: store.history.battery,
+                               series: [.init(title: DeckL("电量"), color: theme.accent, format: Format.percent)],
+                               values: { [Double($0.percent) / 100] }, maximum: 1, compact: true)
             DeckCard {
                 VStack(alignment: .leading, spacing: 3) {
                     DeckTitle(DeckL("电量流向"))
@@ -850,5 +957,57 @@ private struct BatteryDetail: View {
             }
         }
         .onAppear { bluetooth.refreshIfStale() }
+    }
+}
+
+private struct BatteryDiagnostics: View {
+    @ObservedObject var store: SystemStore
+
+    var body: some View {
+        let battery = store.snapshot.battery
+        VStack(spacing: DeckTheme.cardSpacing) {
+            DeckCard {
+                VStack(alignment: .leading, spacing: 4) {
+                    DeckTitle(DeckL("电池", "Battery"))
+                    DeckInfoRow(DeckL("功耗"), Format.watts(battery.watts))
+                    DeckInfoRow(DeckL("电流", "Current"), sensorNumber(battery.amps, unit: "A"))
+                    DeckInfoRow(DeckL("电压"), sensorNumber(battery.volts, unit: "V"))
+                    DeckInfoRow(DeckL("温度"), Format.degrees(battery.temperatureCelsius))
+                }
+            }
+            DeckCard {
+                VStack(alignment: .leading, spacing: 4) {
+                    DeckTitle(DeckL("电池健康"))
+                    DeckInfoRow(DeckL("循环次数"), battery.cycleCount.map { String($0) } ?? "—")
+                    DeckInfoRow(DeckL("状态", "Condition"), condition(battery.healthCondition))
+                    DeckInfoRow(DeckL("设计容量", "Design capacity"), capacity(battery.designCapacity))
+                    DeckInfoRow(DeckL("满充容量", "Full charge capacity"), capacity(battery.fullChargeCapacity))
+                }
+            }
+            if battery.cellVolts.contains(where: { $0 != nil }) {
+                DeckCard {
+                    VStack(alignment: .leading, spacing: 4) {
+                        DeckTitle(DeckL("电池单元", "Battery cells"))
+                        ForEach(battery.cellVolts.indices, id: \.self) { index in
+                            DeckInfoRow(DeckLF("电池单元 %lld", "Cell %lld", Int64(index + 1)),
+                                        sensorNumber(battery.cellVolts[index], unit: "V"))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func capacity(_ value: Int?) -> String {
+        value.map { $0.formatted(.number.locale(DeckLanguage.current.locale)) + " mAh" } ?? "—"
+    }
+
+    private func condition(_ value: String?) -> String {
+        switch value {
+        case "Good": DeckL("正常", "Normal")
+        case "Fair", "Poor", "Check Battery", "Permanent Battery Failure", "Service Recommended":
+            DeckL("建议维修", "Service recommended")
+        default: value ?? "—"
+        }
     }
 }

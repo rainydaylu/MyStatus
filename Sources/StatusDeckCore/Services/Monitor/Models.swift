@@ -176,6 +176,10 @@ struct BatteryStats: Equatable, Sendable {
     var isExternalPowerConnected = false
     var minutesRemaining: Int?
     var cycleCount: Int?
+    var designCapacity: Int?
+    var fullChargeCapacity: Int?
+    var healthCondition: String?
+    var cellVolts: [Double?] = []
     /// Full-charge capacity against design capacity, 0...1.
     var health: Double?
     var temperatureCelsius: Double?

@@ -28,7 +28,8 @@ struct PanelBackdrop: View {
 
     var body: some View {
         if usesGlass && !reduceTransparency && (depth > 0 || blur > 0) {
-            MenuBackdrop(blur: blur, tint: PanelBackdropDepth.intensity(at: depth) * 0.28, feather: feather)
+            MenuBackdrop(blur: min(1, max(0, blur)) * 0.72,
+                         tint: PanelBackdropDepth.intensity(at: depth) * 0.28, feather: feather)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }

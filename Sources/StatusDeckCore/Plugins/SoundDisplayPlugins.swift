@@ -240,8 +240,6 @@ private struct VirtualDevicesDisclosure<Content: View>: View {
     let count: Int
     @Binding var isOpen: Bool
     @ViewBuilder var content: () -> Content
-    @Environment(\.deckTheme) private var theme
-
     var body: some View {
         if count > 0 {
             Button {
@@ -250,9 +248,6 @@ private struct VirtualDevicesDisclosure<Content: View>: View {
                 HStack {
                     DeckSubheading(DeckLF("虚拟设备（%@）", "Virtual devices (%@)", String(count)))
                     Spacer()
-                    Image(systemName: isOpen ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(theme.secondary)
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 5)

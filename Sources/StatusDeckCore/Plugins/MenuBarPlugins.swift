@@ -9,17 +9,19 @@ import SwiftUI
 /// connection in the middle, volume in the dots along the bottom. This is a
 /// separate, much smaller drawing than its configurable renderer.
 final class TrioIconPlugin: BuiltInPlugin {
+    static let id = "com.statusdeck.trioicon"
     private let item = DeckMenuBarItem()
     private var cancellables: Set<AnyCancellable> = []
     private var lastContent: TrioIconRenderer.Content?
 
     init(services: SharedServices) {
         super.init(manifest: PluginManifest(
-            id: "com.statusdeck.trioicon",
+            id: Self.id,
             name: "三合一状态图标",
             summary: "一个菜单栏图标同时显示电池、Wi-Fi 和音量。在图标上滚动可以调音量。",
             symbol: "circle.dashed",
             category: .menuBar,
+            enabledByDefault: true,
             sortOrder: 900
         ), services: services)
     }
@@ -100,8 +102,8 @@ enum TrioIconRenderer {
             let radius: CGFloat = 9.5
 
             drawRing(content, center: center, radius: radius, primary: primary)
-            drawTop(content, center: center, radius: radius, primary: primary)
             drawConnection(content, center: center, primary: primary)
+            drawPower(content, center: center, primary: primary)
             drawVolume(content, center: center, radius: radius, primary: primary)
             return true
         }
@@ -116,8 +118,7 @@ enum TrioIconRenderer {
         return percent <= 20 ? .systemRed : primary
     }
 
-    /// The ring runs clockwise from the bottom-left gap, over the top, to the
-    /// bottom-right gap, leaving room for the percentage and the dots.
+    /// The ring runs continuously over the top; the bottom leaves room for the volume dots.
     private static func drawRing(_ content: Content, center: NSPoint, radius: CGFloat, primary: NSColor) {
         let start: CGFloat = 215
         let end: CGFloat = -35
@@ -140,30 +141,11 @@ enum TrioIconRenderer {
         fill.stroke()
     }
 
-    /// The figure, or a bolt/plug while on power, sits in a gap cut from the ring.
-    private static func drawTop(_ content: Content, center: NSPoint, radius: CGFloat, primary: NSColor) {
-        guard content.batteryPercent != nil else { return }
-        let gapCenter = NSPoint(x: center.x, y: center.y + radius - 1)
-        let clear = NSRect(x: gapCenter.x - 6.5, y: gapCenter.y - 3.5, width: 13, height: 9)
-        NSGraphicsContext.current?.saveGraphicsState()
-        NSGraphicsContext.current?.compositingOperation = .clear
-        NSBezierPath(rect: clear).fill()
-        NSGraphicsContext.current?.restoreGraphicsState()
-
-        if content.isCharging || content.isPluggedIn {
-            // The portrait plug only exists from macOS 14; a bolt fits the gap on older systems.
-            let name = content.isCharging || NSImage(systemSymbolName: "powerplug.portrait.fill", accessibilityDescription: nil) == nil
-                ? "bolt.fill" : "powerplug.portrait.fill"
-            drawSymbol(name, center: NSPoint(x: gapCenter.x, y: gapCenter.y + 0.5), pointSize: 6.5, color: primary)
-        } else if let percent = content.batteryPercent {
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 7.5, weight: .bold),
-                .foregroundColor: primary
-            ]
-            let text = "\(percent)" as NSString
-            let size = text.size(withAttributes: attributes)
-            text.draw(at: NSPoint(x: gapCenter.x - size.width / 2, y: gapCenter.y - size.height / 2 + 0.5), withAttributes: attributes)
-        }
+    private static func drawPower(_ content: Content, center: NSPoint, primary: NSColor) {
+        guard content.batteryPercent != nil, content.isCharging || content.isPluggedIn else { return }
+        let name = content.isCharging || NSImage(systemSymbolName: "powerplug.portrait.fill", accessibilityDescription: nil) == nil
+            ? "bolt.fill" : "powerplug.portrait.fill"
+        drawSymbol(name, center: NSPoint(x: center.x, y: center.y + 6.1), pointSize: 4, color: primary)
     }
 
     private static func drawConnection(_ content: Content, center: NSPoint, primary: NSColor) {
@@ -212,7 +194,7 @@ final class StatsPillPlugin: BuiltInPlugin {
             summary: "在菜单栏持续显示网络速度、CPU 和内存占用。",
             symbol: "gauge.with.dots.needle.33percent",
             category: .menuBar,
-            enabledByDefault: false,
+            enabledByDefault: true,
             sortOrder: 910
         ), services: services)
     }
@@ -238,9 +220,9 @@ final class StatsPillPlugin: BuiltInPlugin {
         services.store.sampler.removeInterest(owner: manifest.id)
     }
 
-    private var showsNetwork: Bool { defaults.bool("network", default: true) }
-    private var showsCPU: Bool { defaults.bool("cpu", default: true) }
-    private var showsMemory: Bool { defaults.bool("memory", default: true) }
+    private var showsNetwork: Bool { StatsPillOption.network.isEnabled(in: defaults) }
+    private var showsCPU: Bool { StatsPillOption.cpu.isEnabled(in: defaults) }
+    private var showsMemory: Bool { StatsPillOption.memory.isEnabled(in: defaults) }
 
     private func applyOptions() {
         var metrics: Metric = []
@@ -264,24 +246,38 @@ final class StatsPillPlugin: BuiltInPlugin {
     }
 }
 
+enum StatsPillOption: String, CaseIterable, Identifiable {
+    case network, cpu, memory
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .network: DeckL("网络速度")
+        case .cpu: "CPU"
+        case .memory: DeckL("内存")
+        }
+    }
+
+    func isEnabled(in defaults: PluginDefaults) -> Bool {
+        defaults.bool(rawValue, default: self == .network)
+    }
+}
+
 private struct StatsPillSettings: View {
     let defaults: PluginDefaults
     let onChange: () -> Void
 
     var body: some View {
-        toggle(DeckL("网络速度"), key: "network")
-        toggle("CPU", key: "cpu")
-        toggle(DeckL("内存"), key: "memory")
-    }
-
-    private func toggle(_ title: String, key: String) -> some View {
-        Toggle(title, isOn: Binding(
-            get: { defaults.bool(key, default: true) },
-            set: {
-                defaults.set($0, forKey: key)
-                onChange()
-            }
-        ))
+        ForEach(StatsPillOption.allCases) { option in
+            Toggle(option.title, isOn: Binding(
+                get: { option.isEnabled(in: defaults) },
+                set: {
+                    defaults.set($0, forKey: option.rawValue)
+                    onChange()
+                }
+            ))
+        }
     }
 }
 

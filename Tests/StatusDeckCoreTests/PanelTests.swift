@@ -15,6 +15,21 @@ struct PanelLayoutTests {
         CGRect(x: x, y: 1600, width: 30, height: 24)
     }
 
+    @Test func thirdColumnUsesOuterRoomAndFallsBackOnNarrowDisplays() throws {
+        for anchorX in [100.0, 2_600.0] {
+            let layout = PanelGeometry.layout(anchor: anchor(x: anchorX), visible: screen)
+            let third = try #require(layout.drilldownPosition(beside: layout.flyoutX))
+            #expect(abs(third - layout.flyoutX) == DeckTheme.flyoutWidth + cardGap)
+            #expect(third >= 0)
+            #expect(third + DeckTheme.flyoutWidth <= layout.window.width)
+        }
+        let centered = PanelGeometry.layout(anchor: anchor(x: 705), visible: CGRect(x: 0, y: 0, width: 1_440, height: 1_600))
+        let opposite = try #require(centered.drilldownPosition(beside: centered.flyoutX))
+        #expect((opposite < centered.panelX) != (centered.flyoutX < centered.panelX))
+        let narrow = PanelGeometry.layout(anchor: anchor(x: 410), visible: CGRect(x: 0, y: 0, width: 850, height: 1_600))
+        #expect(narrow.drilldownPosition(beside: narrow.flyoutX) == nil)
+    }
+
     @Test func opensLeftWhenThePanelIsOnTheRightOfTheScreen() {
         let layout = PanelGeometry.layout(anchor: anchor(x: 2600), visible: screen)
         #expect(layout.flyoutX + DeckTheme.flyoutWidth + cardGap == layout.panelX)
@@ -42,8 +57,21 @@ struct PanelLayoutTests {
         #expect(layout.window.minX + layout.panelX + DeckTheme.panelWidth <= screen.maxX)
         let backdrop = layout.backdropFrame(contentHeight: 500)
         #expect(backdrop.maxX <= layout.window.width)
+        #expect(layout.window.minX + backdrop.maxX <= screen.maxX)
         #expect(backdrop.maxX > layout.panelX + DeckTheme.panelWidth)
         #expect(layout.panelX - backdrop.minX == backdrop.maxX - layout.panelX - DeckTheme.panelWidth)
+    }
+
+    @Test func backdropIsCenteredOnCardsRegardlessOfWhichSideFitsTheFlyout() {
+        for anchorX in [150.0, 1_600.0, 2_990.0] {
+            let layout = PanelGeometry.layout(anchor: anchor(x: anchorX), visible: screen)
+            let backdrop = layout.backdropFrame(contentHeight: 500)
+            let feather = layout.backdropFeather(contentHeight: 500)
+            #expect(backdrop.midX == layout.panelX + DeckTheme.panelWidth / 2)
+            #expect(feather.left == feather.right)
+            #expect(layout.window.minX + backdrop.minX >= screen.minX)
+            #expect(layout.window.minX + backdrop.maxX <= screen.maxX)
+        }
     }
 
     @Test func backdropHasRoomToFadeBeyondTheCards() {
@@ -194,6 +222,41 @@ struct RowLookupTests {
 
 @Suite("Hover intent")
 struct HoverIntentTests {
+    @MainActor
+    @Test func drilldownOpensOnHoverAndKeepsItsSelectionWhileEnteringTheNextColumn() throws {
+        let model = PanelHoverModel()
+        model.flyoutFrame = CGRect(x: 0, y: 0, width: 320, height: 200)
+        let first = CGRect(x: 10, y: 10, width: 300, height: 45)
+        let second = CGRect(x: 10, y: 60, width: 300, height: 45)
+        for (id, frame) in [("first", first), ("second", second)] {
+            model.drilldownTargets[id] = PanelDrilldownTarget(frame: frame) {
+                PanelDrilldown(id: id, title: id, anchor: frame, content: AnyView(EmptyView()))
+            }
+        }
+        let start = CGPoint(x: 150, y: 35)
+        model.trackDrilldown(at: start, from: start, now: 0)
+        #expect(model.drilldown == nil)
+        model.trackDrilldown(at: start, from: start, now: 0.06)
+        try #require(model.drilldown?.id == "first")
+
+        model.drilldownFrame = CGRect(x: -328, y: 10, width: 320, height: 170)
+        let crossing = CGPoint(x: 90, y: 67)
+        model.trackDrilldown(at: crossing, from: start, now: 0.07)
+        model.trackDrilldown(at: crossing, from: start, now: 0.11)
+        #expect(model.drilldown?.id == "first")
+        model.trackDrilldown(at: CGPoint(x: -20, y: 80), from: crossing, now: 0.13)
+        #expect(model.drilldown?.id == "first")
+
+        model.closeDrilldown()
+        model.trackDrilldown(at: start, from: start, now: 0.14)
+        model.trackDrilldown(at: start, from: start, now: 0.25)
+        #expect(model.drilldown == nil)
+        model.trackDrilldown(at: CGPoint(x: 0, y: 0), from: start, now: 0.26)
+        model.trackDrilldown(at: start, from: start, now: 0.3)
+        model.trackDrilldown(at: start, from: start, now: 0.37)
+        #expect(model.drilldown?.id == "first")
+    }
+
     @Test func opensAfterARest() {
         var intent = HoverIntent()
         #expect(intent.update(rowID: "cpu", isHeadingToFlyout: false, now: 0) == nil)

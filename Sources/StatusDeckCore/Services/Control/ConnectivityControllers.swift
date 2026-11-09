@@ -5,6 +5,7 @@ import Foundation
 import IOBluetooth
 import IOKit
 import StatusDeckKit
+import SystemConfiguration
 
 // MARK: - Wi-Fi
 
@@ -22,9 +23,19 @@ struct WiFiState: Equatable {
     var standard: String?
     var security: String?
     var interfaceName: String?
+    var hardwareAddress: String?
+    var ipv4: String?
+    var subnetMask: String?
+    var router: String?
+    var dnsServers: [String] = []
 
     /// Associated with a network, which is knowable even when the name is hidden.
     var isAssociated: Bool { (rssi ?? 0) != 0 }
+
+    var signalToNoise: Int? {
+        guard let rssi, let noise, noise < 0 else { return nil }
+        return rssi - noise
+    }
 
     var bars: Int {
         guard isPoweredOn, isAssociated, let rssi else { return 0 }
@@ -86,12 +97,15 @@ final class WiFiController: ObservableObject {
         state.isAvailable = true
         state.isPoweredOn = interface.powerOn()
         state.interfaceName = interface.interfaceName
+        state.hardwareAddress = interface.hardwareAddress()
         guard state.isPoweredOn else { return state }
 
         let rssi = interface.rssiValue()
         state.rssi = rssi == 0 ? nil : rssi
-        state.noise = interface.noiseMeasurement()
-        state.transmitRate = interface.transmitRate()
+        let noise = interface.noiseMeasurement()
+        state.noise = noise < 0 ? noise : nil
+        let rate = interface.transmitRate()
+        state.transmitRate = rate.isFinite && rate > 0 ? rate : nil
         if includeIdentity {
             state.ssid = interface.ssid()
             state.bssid = interface.bssid()
@@ -130,7 +144,33 @@ final class WiFiController: ObservableObject {
         case .wpa3Personal, .wpa3Enterprise, .wpa3Transition: state.security = "WPA3"
         default: break
         }
+        if let name = state.interfaceName, state.isAssociated { readIPv4(for: name, into: &state) }
         return state
+    }
+
+    nonisolated private static func readIPv4(for interface: String, into state: inout WiFiState) {
+        guard let store = SCDynamicStoreCreate(nil, "MyStatus Wi-Fi" as CFString, nil, nil) else { return }
+        func dictionary(_ key: String) -> [String: Any]? {
+            SCDynamicStoreCopyValue(store, key as CFString) as? [String: Any]
+        }
+        let prefix = "State:/Network/Service/"
+        let suffix = "/IPv4"
+        let primary = dictionary("State:/Network/Global/IPv4")?["PrimaryService"] as? String
+        let keys = SCDynamicStoreCopyKeyList(store, (prefix + "[^/]+" + suffix) as CFString) as? [String] ?? []
+        let primaryKey = primary.map { prefix + $0 + suffix }
+        let candidates = (primaryKey.map { [$0] } ?? []) + keys.filter { $0 != primaryKey }.sorted()
+        for key in candidates {
+            guard let ipv4 = dictionary(key), ipv4["InterfaceName"] as? String == interface,
+                  let address = (ipv4["Addresses"] as? [String])?.first else { continue }
+            state.ipv4 = address
+            state.subnetMask = (ipv4["SubnetMasks"] as? [String])?.first
+            state.router = ipv4["Router"] as? String
+            let service = key.dropFirst(prefix.count).dropLast(suffix.count)
+            state.dnsServers = dictionary(prefix + service + "/DNS")?["ServerAddresses"] as? [String]
+                ?? dictionary("Setup:/Network/Service/\(service)/DNS")?["ServerAddresses"] as? [String]
+                ?? []
+            return
+        }
     }
 }
 

@@ -36,7 +36,7 @@ final class StatusBarController {
 
     /// Something to hang the panel from when it opens without a click on an icon.
     var primaryButton: NSStatusBarButton? {
-        items.values.first?.statusItem.button ?? fallback?.button
+        items[TrioIconPlugin.id]?.statusItem.button ?? items.values.first?.statusItem.button ?? fallback?.button
     }
 
     func sync() {
@@ -64,6 +64,8 @@ final class StatusBarController {
     private func makeItem(id: String, model: DeckMenuBarItem) -> ManagedItem {
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.autosaveName = "StatusDeck.\(id)"
+        // The in-app switch controls visibility for the primary icon.
+        if id == TrioIconPlugin.id { statusItem.isVisible = true }
         let managed = ManagedItem(statusItem: statusItem)
         configure(statusItem)
         if let button = statusItem.button {

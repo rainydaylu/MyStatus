@@ -368,33 +368,53 @@ struct BatteryReader {
               let registry = properties?.takeRetainedValue() as? [String: Any] else {
             return stats
         }
-        return Self.parse(registry: registry, into: stats, adapter: IOPSCopyExternalPowerAdapterDetails()?.takeRetainedValue() as? [String: Any])
+        return Self.parse(registry: registry, into: stats,
+                          adapter: IOPSCopyExternalPowerAdapterDetails()?.takeRetainedValue() as? [String: Any],
+                          powerSource: Self.internalPowerSource())
     }
 
-    static func parse(registry: [String: Any], into base: BatteryStats, adapter: [String: Any]?) -> BatteryStats {
+    private static func internalPowerSource() -> [String: Any]? {
+        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let sources = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else { return nil }
+        return sources.lazy.compactMap { IOPSGetPowerSourceDescription(info, $0)?.takeUnretainedValue() as? [String: Any] }
+            .first { $0[kIOPSTypeKey] as? String == kIOPSInternalBatteryType }
+    }
+
+    static func parse(registry: [String: Any], into base: BatteryStats, adapter: [String: Any]?,
+                      powerSource: [String: Any]? = nil) -> BatteryStats {
         var stats = base
+        let data = registry["BatteryData"] as? [String: Any] ?? [:]
+        func number(_ key: String, valid: (Int) -> Bool = { _ in true }) -> Int? {
+            [registry[key], data[key]].lazy.compactMap { ($0 as? NSNumber)?.intValue }.first(where: valid)
+        }
         stats.isPresent = true
         stats.percent = registry["CurrentCapacity"] as? Int ?? 0
         stats.isCharging = registry["IsCharging"] as? Bool ?? false
         stats.isFullyCharged = registry["FullyCharged"] as? Bool ?? false
         stats.isExternalPowerConnected = registry["ExternalConnected"] as? Bool ?? false
-        stats.cycleCount = registry["CycleCount"] as? Int
+        stats.cycleCount = number("CycleCount")
+        stats.designCapacity = number("DesignCapacity") { $0 > 1 }
+        stats.fullChargeCapacity = number("NominalChargeCapacity") { $0 > 1 }
+            ?? number("AppleRawMaxCapacity") { $0 > 1 }
+        stats.healthCondition = (powerSource?[kIOPSBatteryHealthConditionKey] as? String)
+            ?? (powerSource?[kIOPSBatteryHealthKey] as? String)
+        let cellMillivolts = (data["CellVoltage"] as? [Int]) ?? (registry["CellVoltage"] as? [Int]) ?? []
+        stats.cellVolts = cellMillivolts.map { $0 > 0 && $0 < 6_000 ? Double($0) / 1_000 : nil }
 
         // 65535 is the registry's "still calculating" marker.
         if let minutes = registry["TimeRemaining"] as? Int, minutes > 0, minutes < 65535 {
             stats.minutesRemaining = minutes
         }
-        if let design = registry["DesignCapacity"] as? Int, design > 0,
-           let full = (registry["NominalChargeCapacity"] as? Int) ?? (registry["AppleRawMaxCapacity"] as? Int) {
+        if let design = stats.designCapacity, let full = stats.fullChargeCapacity {
             stats.health = min(1, Double(full) / Double(design))
         }
-        if let temperature = registry["Temperature"] as? Int {
+        if let temperature = number("Temperature"), temperature > 0 {
             stats.temperatureCelsius = Double(temperature) / 100
         }
-        if let voltage = registry["Voltage"] as? Int {
+        if let voltage = number("Voltage"), voltage > 0 {
             stats.volts = Double(voltage) / 1000
         }
-        if let amperage = (registry["InstantAmperage"] as? Int) ?? (registry["Amperage"] as? Int) {
+        if let amperage = number("InstantAmperage") ?? number("Amperage") {
             stats.amps = Double(amperage) / 1000
         }
         stats.adapterWatts = (adapter?["Watts"] as? Int) ?? ((registry["AdapterDetails"] as? [String: Any])?["Watts"] as? Int)

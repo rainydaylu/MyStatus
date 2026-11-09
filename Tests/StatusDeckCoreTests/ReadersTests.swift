@@ -148,6 +148,18 @@ import StatusDeckKit
     @Test func noBatteryIsNotAnEmptyBattery() {
         #expect(BatteryStats().statusText == "无电池")
     }
+
+    @Test func readsDetailedBatteryFieldsWithoutInventingUnavailableCells() {
+        let stats = BatteryReader.parse(registry: [
+            "NominalChargeCapacity": 1,
+            "BatteryData": ["DesignCapacity": 8_694, "NominalChargeCapacity": 6_849, "CellVoltage": [3_804, 0, 3_799]]
+        ], into: BatteryStats(), adapter: nil, powerSource: ["BatteryHealth": "Good"])
+        #expect(stats.designCapacity == 8_694)
+        #expect(stats.fullChargeCapacity == 6_849)
+        #expect(stats.healthCondition == "Good")
+        #expect(stats.cellVolts == [3.804, nil, 3.799])
+        #expect(BatteryReader.parse(registry: [:], into: BatteryStats(), adapter: nil).cellVolts.isEmpty)
+    }
 }
 
 @Suite struct BluetoothTests {
@@ -178,6 +190,17 @@ import StatusDeckKit
 }
 
 @Suite struct MiscellaneousTests {
+    @Test func monitorHistoryShowsTheLatestMeasuredSampleAndLeavesGaps() {
+        var history = MonitorHistory<Int>()
+        let date = Date(timeIntervalSince1970: 1_000)
+        history.append(10, at: 5, date: date)
+        history.append(20, at: 6, date: date.addingTimeInterval(1))
+        history.append(30, at: 39, date: date.addingTimeInterval(34))
+        let bars = history.bins(seconds: 40, count: 4, endingAt: 40)
+        #expect(bars.map { $0?.value } == [20, nil, nil, 30])
+        #expect(bars[0]?.date == date.addingTimeInterval(1))
+        #expect(history.bins(seconds: 60, count: 4, endingAt: 120).allSatisfy { $0 == nil })
+    }
     @Test func virtualInterfacesDoNotCountTowardsTraffic() {
         #expect(NetworkReader.isUserFacing("en0"))
         #expect(!NetworkReader.isUserFacing("utun3"))

@@ -184,8 +184,8 @@ enum PanelGeometry {
     static let margin: CGFloat = 12
     static let verticalPadding: CGFloat = 6
     static let footerShadowRoom: CGFloat = 42
-    static let backdropSideSpread: CGFloat = 104
-    static let backdropBottomSpread: CGFloat = 144
+    static let backdropSideSpread: CGFloat = 50
+    static let backdropBottomSpread: CGFloat = 76
     /// Between the panel's cards and the detail's.
     static let gap: CGFloat = 8
     /// The least distance from the edge of the screen.
@@ -193,7 +193,7 @@ enum PanelGeometry {
     static let coordinateSpace = "statusdeck.panel"
 
     struct Layout: Equatable {
-        /// The window, on screen. It has room for both columns and the screen's full
+        /// The window, on screen. It has room for the flyouts and the screen's full
         /// height, and lets clicks through wherever there is no card.
         var window: CGRect
         /// Left edges of the two columns of cards, inside the window.
@@ -201,6 +201,8 @@ enum PanelGeometry {
         var flyoutX: CGFloat
         var leftFlyoutX: CGFloat?
         var rightFlyoutX: CGFloat?
+        var backdropSpread: CGFloat
+        var screenRange: ClosedRange<CGFloat>
 
         func flyoutPosition(for row: CGRect) -> CGFloat {
             guard row.width < DeckTheme.panelWidth - 1 else { return flyoutX }
@@ -208,11 +210,25 @@ enum PanelGeometry {
             return (isRightColumn ? rightFlyoutX : leftFlyoutX) ?? flyoutX
         }
 
+        func drilldownPosition(beside detailX: CGFloat) -> CGFloat? {
+            let width = DeckTheme.flyoutWidth
+            let outward = detailX < panelX ? detailX - width - PanelGeometry.gap : detailX + width + PanelGeometry.gap
+            if screenRange.contains(outward), screenRange.contains(outward + width) { return outward }
+            // If there is no room beyond the detail, try the free side of the main panel.
+            let opposite = detailX < panelX ? rightFlyoutX : leftFlyoutX
+            guard let opposite, abs(opposite - detailX) >= width + PanelGeometry.gap else { return nil }
+            return opposite
+        }
+
         func backdropFrame(contentHeight: CGFloat) -> CGRect {
-            let roomOnRight = window.width - panelX - DeckTheme.panelWidth
-            let spread = max(0, min(PanelGeometry.backdropSideSpread, panelX, roomOnRight))
-            return CGRect(x: panelX - spread, y: 0, width: DeckTheme.panelWidth + 2 * spread,
+            CGRect(x: panelX - backdropSpread, y: 0, width: DeckTheme.panelWidth + 2 * backdropSpread,
                           height: min(window.height, contentHeight + PanelGeometry.backdropBottomSpread))
+        }
+
+        func backdropFeather(contentHeight: CGFloat) -> PanelBackdropMask.Feather {
+            let horizontal = backdropSpread + 44
+            let bottom = backdropFrame(contentHeight: contentHeight).height - contentHeight + 36
+            return .init(left: horizontal, right: horizontal, top: 28, bottom: bottom)
         }
     }
 
@@ -232,15 +248,26 @@ enum PanelGeometry {
         let rightCandidate = panelRight + gap
         let left = leftCandidate >= visible.minX + screenInset ? leftCandidate : nil
         let right = rightCandidate + flyoutWidth <= visible.maxX - screenInset ? rightCandidate : nil
-        let minX = min(max(visible.minX - margin, panelLeft - backdropSideSpread), (left ?? flyoutLeft) - margin)
-        let maxX = max(min(visible.maxX + margin, panelRight + backdropSideSpread), (right ?? flyoutLeft) + flyoutWidth + margin)
+        let outerLeft = left.flatMap { start -> CGFloat? in
+            let x = start - gap - flyoutWidth
+            return x >= visible.minX + screenInset ? x : nil
+        }
+        let outerRight = right.flatMap { start -> CGFloat? in
+            let x = start + gap + 2 * flyoutWidth
+            return x <= visible.maxX - screenInset ? x : nil
+        }
+        let minX = min(max(visible.minX - margin, panelLeft - backdropSideSpread), (outerLeft ?? left ?? flyoutLeft) - margin)
+        let maxX = max(min(visible.maxX + margin, panelRight + backdropSideSpread),
+                       (outerRight ?? ((right ?? flyoutLeft) + flyoutWidth)) + margin)
         let top = min(anchor.minY, visible.maxY)
         return Layout(
             window: CGRect(x: minX, y: visible.minY, width: maxX - minX, height: top - visible.minY),
             panelX: panelLeft - minX,
             flyoutX: flyoutLeft - minX,
             leftFlyoutX: left.map { $0 - minX },
-            rightFlyoutX: right.map { $0 - minX }
+            rightFlyoutX: right.map { $0 - minX },
+            backdropSpread: max(0, min(backdropSideSpread, panelLeft - visible.minX, visible.maxX - panelRight)),
+            screenRange: (visible.minX + screenInset - minX)...(max(visible.minX + screenInset, visible.maxX - screenInset) - minX)
         )
     }
 
@@ -328,15 +355,59 @@ final class PanelHoverModel: ObservableObject {
     }
 
     @Published var active: Active?
+    @Published var drilldown: PanelDrilldown?
     var rowFrames: [String: CGRect] = [:]
     var panelFrame = CGRect.zero
     var flyoutFrame: CGRect?
+    var drilldownFrame: CGRect?
+    var drilldownTargets: [String: PanelDrilldownTarget] = [:]
+    private var drilldownIntent = HoverIntent()
+    private var dismissedTrigger: (id: String, frame: CGRect)?
 
     func reset() {
         active = nil
         rowFrames = [:]
         panelFrame = .zero
         flyoutFrame = nil
+        resetDrilldown()
+    }
+
+    func closeDrilldown() {
+        if let drilldown, let anchor = drilldownTargets[drilldown.id]?.frame ?? drilldown.anchor {
+            dismissedTrigger = (drilldown.id, anchor)
+        }
+        drilldownIntent.force(nil)
+        drilldownFrame = nil
+        drilldown = nil
+    }
+
+    func resetDrilldown() {
+        closeDrilldown()
+        dismissedTrigger = nil
+        drilldownTargets.removeAll()
+    }
+
+    func openDrilldown(_ next: PanelDrilldown) {
+        guard drilldown?.id != next.id else { return }
+        dismissedTrigger = nil
+        drilldownIntent.force(next.id)
+        drilldownFrame = nil
+        drilldown = next
+    }
+
+    func trackDrilldown(at point: CGPoint, from previous: CGPoint, now: TimeInterval) {
+        if let dismissed = dismissedTrigger {
+            let frame = drilldownTargets[dismissed.id]?.frame ?? dismissed.frame
+            if frame.contains(point) { return }
+            dismissedTrigger = nil
+        }
+        let isOverSecond = flyoutFrame?.contains(point) == true && drilldownFrame?.contains(point) != true
+        let row = isOverSecond ? drilldownTargets.first(where: { $0.value.frame.contains(point) })?.key : nil
+        let heading = drilldownFrame.map { HoverIntent.isHeading(from: previous, to: point, toward: $0) } ?? false
+        if let next = drilldownIntent.update(rowID: row, isHeadingToFlyout: heading, now: now),
+           let target = drilldownTargets[next] {
+            openDrilldown(target.make())
+        }
     }
 }
 
@@ -379,21 +450,43 @@ private struct PanelRoot: View {
                 // Draw the feather in the window itself. A ScrollView background clips
                 // to the scroll column and loses the left and bottom of the blur.
                 if shown > 0 {
-                    let sideFeather = layout.panelX - backdrop.minX + 32
-                    PanelBackdrop(feather: .init(left: sideFeather,
-                                                 right: sideFeather,
-                                                 top: 48,
-                                                 bottom: backdrop.height - shown + 52))
+                    PanelBackdrop(feather: layout.backdropFeather(contentHeight: shown))
                         .frame(width: backdrop.width, height: backdrop.height)
-                        .offset(x: backdrop.minX, y: backdrop.minY)
+                        .position(x: backdrop.midX, y: backdrop.midY)
                 }
                 PanelColumn(layout: layout, manager: manager, hover: hover, store: store,
                             onOpenSettings: onOpenSettings, onOpenDetail: onOpenDetail, height: $panelHeight)
                 if let active = hover.active {
-                    FlyoutColumn(active: active, layout: layout, hover: hover)
-                        // Each section starts fresh, and its `onDisappear` stops what only it needed.
+                    let side = layout.drilldownPosition(beside: active.flyoutX)
+                    let replacesDetail = side == nil && hover.drilldown != nil
+                    FlyoutColumn(x: active.flyoutX, rowTop: active.rowTop, windowHeight: layout.window.height,
+                                 onFrame: { hover.flyoutFrame = $0 }) {
+                        if let drilldown = hover.drilldown, replacesDetail {
+                            drilldownContent(drilldown, isInline: true)
+                        } else {
+                            active.section.detail
+                                .environment(\.panelDrilldowns, PanelDrilldownActions(
+                                    selected: hover.drilldown?.id,
+                                    open: hover.openDrilldown,
+                                    track: { id, target in
+                                        guard hover.active?.section.id == active.section.id else { return }
+                                        hover.drilldownTargets[id] = target
+                                        if target == nil, side != nil, hover.drilldown?.id == id {
+                                            hover.closeDrilldown()
+                                        }
+                                    }
+                                ))
+                        }
+                    }
                         .id(active.section.id)
                         .transition(.opacity.combined(with: .offset(x: active.flyoutX < layout.panelX ? 5 : -5)))
+                    if let side, let drilldown = hover.drilldown {
+                        FlyoutColumn(x: side, rowTop: drilldown.anchor?.minY ?? active.rowTop, windowHeight: layout.window.height,
+                                     onFrame: { hover.drilldownFrame = $0 }) {
+                            drilldownContent(drilldown, isInline: false)
+                        }
+                        .id(drilldown.id)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -401,6 +494,25 @@ private struct PanelRoot: View {
             .modifier(MenuPanelPalette())
         }
         .environment(\.colorScheme, state.appearance.colorScheme(following: colorScheme))
+    }
+
+    private func drilldownContent(_ drilldown: PanelDrilldown, isInline: Bool) -> some View {
+        VStack(spacing: DeckTheme.cardSpacing) {
+            DeckCard {
+                HStack {
+                    DeckTitle(drilldown.title)
+                    Spacer()
+                    Button(action: hover.closeDrilldown) {
+                        Image(systemName: isInline ? "chevron.backward" : "xmark")
+                            .padding(5)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(isInline ? DeckL("返回", "Back") : DeckL("关闭", "Close"))
+                }
+            }
+            drilldown.content
+        }
     }
 }
 
@@ -652,17 +764,19 @@ private struct PanelRow: View {
 }
 
 /// The floating cards beside the panel. Scrolls only when a screen cannot fit them.
-private struct FlyoutColumn: View {
-    let active: PanelHoverModel.Active
-    let layout: PanelGeometry.Layout
-    let hover: PanelHoverModel
+private struct FlyoutColumn<Content: View>: View {
+    let x: CGFloat
+    let rowTop: CGFloat
+    let windowHeight: CGFloat
+    let onFrame: (CGRect) -> Void
+    @ViewBuilder let content: () -> Content
     @State private var height: CGFloat = 0
 
     var body: some View {
         let columnWidth = DeckTheme.flyoutWidth + PanelGeometry.margin * 2
-        let shown = min(height, layout.window.height)
+        let shown = min(height, windowHeight)
         ScrollView(.vertical, showsIndicators: false) {
-            active.section.detail
+            content()
                 .padding(.horizontal, PanelGeometry.margin)
                 .padding(.vertical, PanelGeometry.verticalPadding)
                 .frame(width: columnWidth)
@@ -677,21 +791,21 @@ private struct FlyoutColumn: View {
                 .padding(.horizontal, PanelGeometry.margin)
                 .padding(.vertical, PanelGeometry.verticalPadding)
         }
-        .padding(.leading, active.flyoutX - PanelGeometry.margin)
-        .padding(.top, PanelGeometry.flyoutY(rowTop: active.rowTop, height: shown, windowHeight: layout.window.height))
+        .padding(.leading, x - PanelGeometry.margin)
+        .padding(.top, PanelGeometry.flyoutY(rowTop: rowTop, height: shown, windowHeight: windowHeight))
         // Nothing until it knows its size, so that it never appears in the wrong place.
         .opacity(height == 0 ? 0 : 1)
         .onPreferenceChange(ContentHeightKey.self) { value in
             MainActor.assumeIsolated {
                 height = value
-                let shown = min(value, layout.window.height)
-                let top = PanelGeometry.flyoutY(rowTop: active.rowTop, height: shown, windowHeight: layout.window.height)
-                hover.flyoutFrame = CGRect(
-                    x: active.flyoutX,
+                let shown = min(value, windowHeight)
+                let top = PanelGeometry.flyoutY(rowTop: rowTop, height: shown, windowHeight: windowHeight)
+                onFrame(CGRect(
+                    x: x,
                     y: top + PanelGeometry.verticalPadding,
                     width: DeckTheme.flyoutWidth,
                     height: max(0, shown - PanelGeometry.verticalPadding * 2)
-                )
+                ))
             }
         }
     }
@@ -755,6 +869,7 @@ final class PanelController {
         }
 
         hover.reset()
+        store.processTransfers.show(nil)
         intent = HoverIntent()
 
         let buttonWindow = button?.window
@@ -791,6 +906,7 @@ final class PanelController {
         anchorButton?.isHighlighted = false
         stopTracking()
         hover.reset()
+        store.processTransfers.show(nil)
         panel.orderOut(nil)
         removeMonitors()
         onVisibilityChange(false)
@@ -836,16 +952,21 @@ final class PanelController {
 
         let point = PanelGeometry.localPoint(NSEvent.mouseLocation, window: panel.frame)
         let now = ProcessInfo.processInfo.systemUptime
-        let isOverFlyout = hover.flyoutFrame?.contains(point) ?? false
+        let previous = trail?.point ?? point
+        if hover.drilldown == nil || hover.active.flatMap({ currentLayout?.drilldownPosition(beside: $0.flyoutX) }) != nil {
+            hover.trackDrilldown(at: point, from: previous, now: now)
+        }
+        let flyouts = [hover.flyoutFrame, hover.drilldownFrame].compactMap { $0 }
+        let isOverFlyout = flyouts.contains { $0.contains(point) }
         let isOverPanel = hover.panelFrame.contains(point)
 
         // The window spans the screen's height. Away from the cards it must not be there.
         panel.ignoresMouseEvents = !isOverFlyout && !isOverPanel
 
         let rowID = !isOverFlyout && isOverPanel ? PanelGeometry.row(at: point, frames: hover.rowFrames) : nil
-        let isHeading = hover.flyoutFrame.map { flyout in
-            HoverIntent.isHeading(from: trail?.point ?? point, to: point, toward: flyout)
-        } ?? false
+        let isHeading = flyouts.contains { flyout in
+            HoverIntent.isHeading(from: previous, to: point, toward: flyout)
+        }
 
         if let next = intent.update(rowID: rowID, isHeadingToFlyout: isHeading, now: now) {
             show(next)
@@ -858,7 +979,15 @@ final class PanelController {
 
     private func show(_ id: String) {
         let section = manager.activePlugins.flatMap(\.sections).first { $0.id == id }
+        let displaysDetail = section?.detail != nil && hover.rowFrames[id] != nil && currentLayout != nil
+        let transferSource: TransferSource? = switch id {
+        case "disk": .disk
+        case "network": .network
+        default: nil
+        }
+        store.processTransfers.show(displaysDetail ? transferSource : nil)
         withAnimation(.spring(response: 0.13, dampingFraction: 0.92)) {
+            hover.resetDrilldown()
             if let section, section.detail != nil, let frame = hover.rowFrames[id], let currentLayout {
                 hover.flyoutFrame = nil
                 hover.active = PanelHoverModel.Active(section: section, rowTop: frame.minY,
@@ -880,7 +1009,9 @@ final class PanelController {
         }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53, let self, event.window === self.panel { // Esc
-                MainActor.assumeIsolated { self.close() }
+                MainActor.assumeIsolated {
+                    if self.hover.drilldown != nil { self.hover.closeDrilldown() } else { self.close() }
+                }
                 return nil
             }
             return event

@@ -5,6 +5,7 @@ struct FanControls: View {
     @ObservedObject var controller: FanController
     let detailed: Bool
     var readings: [FanReading] = []
+    var historyStore: SystemStore? = nil
     @Environment(\.deckTheme) private var theme
 
     var body: some View {
@@ -20,12 +21,20 @@ struct FanControls: View {
             ForEach(ids, id: \.self) { id in
                 let reading = readings.first { $0.id == id }
                 if let fan = controller.targets.first(where: { $0.id == id }), let range = fan.bounds {
-                    FanSpeedRow(fan: fan, range: range, controller: controller, detailed: detailed)
+                    FanSpeedRow(fan: fan, range: range, controller: controller, detailed: detailed) {
+                        historyLabel(id: id) { title in
+                            DeckInfoRow(title, fan.currentSpeed.map { "\($0) RPM" } ?? rpmText(reading?.rpm))
+                        }
+                    }
                 } else if let reading {
-                    DeckMeterRow(reading.name, value: reading.fraction, text: "\(Int(reading.rpm)) RPM")
+                    historyLabel(id: id) { title in
+                        DeckMeterRow(title, value: reading.fraction, text: rpmText(reading.rpm))
+                    }
                 } else {
                     let rpm = controller.targets.first { $0.id == id }?.currentSpeed
-                    DeckInfoRow(DeckLF("风扇 %ld", "Fan %ld", id + 1), rpm.map { "\($0) RPM" } ?? "—")
+                    historyLabel(id: id) { title in
+                        DeckInfoRow(title, rpm.map { "\($0) RPM" } ?? "—")
+                    }
                 }
             }
             if !controller.didReadFans {
@@ -54,13 +63,34 @@ struct FanControls: View {
             }
         }
     }
+
+    @ViewBuilder
+    private func historyLabel<Label: View>(id: Int, @ViewBuilder label: (String) -> Label) -> some View {
+        let title = DeckLF("风扇 %ld", "Fan %ld", id + 1)
+        let row = label(title)
+        if let historyStore {
+            PanelDrilldownLink(id: "fan.rpm.\(id)", title: title) {
+                row
+            } detail: {
+                SensorHistoryView(store: historyStore, title: title, source: \.sensors,
+                                  measure: { $0.fans.first { $0.id == id }?.rpm }, format: rpmText)
+            }
+        } else {
+            row
+        }
+    }
+
+    private func rpmText(_ rpm: Double?) -> String {
+        rpm.map { "\(Int($0.rounded())) RPM" } ?? "—"
+    }
 }
 
-private struct FanSpeedRow: View {
+private struct FanSpeedRow<Label: View>: View {
     let fan: FanTarget
     let range: ClosedRange<Int>
     @ObservedObject var controller: FanController
     let detailed: Bool
+    @ViewBuilder let label: () -> Label
     @State private var draft: Double?
     @Environment(\.deckTheme) private var theme
 
@@ -70,7 +100,7 @@ private struct FanSpeedRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            DeckInfoRow(DeckLF("风扇 %ld", "Fan %ld", fan.id + 1), fan.currentSpeed.map { "\($0) RPM" } ?? "—")
+            label()
             if detailed {
                 DeckInfoRow(DeckL("控制方式", "Control mode"), fan.isManual ? DeckL("固定转速", "Fixed speed") : DeckL("系统自动", "System Auto"))
                 if fan.isManual {

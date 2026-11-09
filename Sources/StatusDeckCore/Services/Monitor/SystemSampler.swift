@@ -58,11 +58,9 @@ final class SystemSampler {
     func setPanelVisible(_ visible: Bool) {
         queue.async { [self] in
             guard isPanelVisible != visible else { return }
+            if visible, !active.contains(.soc) { ioReport?.reset() }
             isPanelVisible = visible
-            if visible {
-                ioReport?.reset()
-                tick = 0
-            }
+            if visible { tick = 0 }
             reconcile(sampleNow: visible)
         }
     }
@@ -78,7 +76,7 @@ final class SystemSampler {
     func refreshBattery() {
         queue.async { [self] in
             snapshot.battery = battery.read()
-            snapshot.sampledMetrics = []
+            snapshot.sampledMetrics = [.battery]
             onSample?(snapshot)
         }
     }
@@ -119,12 +117,19 @@ final class SystemSampler {
         if metrics.contains(.memory) { snapshot.memory = memory.read() }
         if metrics.contains(.network) { snapshot.network = network.read() }
         // Slow-changing values are spaced out by multiples of the tick.
-        if metrics.contains(.battery), tick % (isPanelVisible ? 5 : 30) == 0 { snapshot.battery = battery.read() }
+        if metrics.contains(.battery) {
+            if tick % (isPanelVisible ? 5 : 30) == 0 { snapshot.battery = battery.read() }
+            else { snapshot.sampledMetrics.remove(.battery) }
+        }
         if metrics.contains(.gpu) { snapshot.gpu = gpu.read() }
         if metrics.contains(.soc) {
             // The first read after opening only starts an interval and comes back
             // empty, so the previous values stay up instead of flashing to dashes.
-            if let reading = ioReport?.read(), reading != SoCStats() { snapshot.soc = reading }
+            if tick % (isPanelVisible ? 1 : 10) == 0, let reading = ioReport?.read(), reading != SoCStats() {
+                snapshot.soc = reading
+            } else {
+                snapshot.sampledMetrics.remove(.soc)
+            }
         }
         if metrics.contains(.system) {
             snapshot.uptime = SystemControl.uptime()
@@ -138,12 +143,16 @@ final class SystemSampler {
             snapshot.disk.totalWrittenBytes = rates.totalWrite
             if isPanelVisible, tick % 10 == 0 || snapshot.disk.volumes.isEmpty { snapshot.disk.volumes = disk.volumes() }
         }
-        if metrics.contains(.sensors), tick % 2 == 0 {
-            if let temperatures { snapshot.sensors.temperatures = temperatures.read() }
-            if let smc {
-                snapshot.sensors.fans = smc.fans()
-                snapshot.sensors.systemWatts = smc.read("PSTR")
-                snapshot.sensors.adapterInputWatts = smc.read("PDTR")
+        if metrics.contains(.sensors) {
+            if tick % (isPanelVisible ? 2 : 10) == 0 {
+                if let temperatures { snapshot.sensors.temperatures = temperatures.read() }
+                if let smc {
+                    snapshot.sensors.fans = smc.fans()
+                    snapshot.sensors.systemWatts = smc.read("PSTR")
+                    snapshot.sensors.adapterInputWatts = smc.read("PDTR")
+                }
+            } else {
+                snapshot.sampledMetrics.remove(.sensors)
             }
         }
         if metrics.contains(.processes), tick % 3 == 0 { snapshot.processes = processes.read() }
@@ -159,15 +168,19 @@ struct History: Equatable {
     var cpuSystem: [Double] = []
     var upload: [Double] = []
     var download: [Double] = []
-    var memoryPressure: [Double] = []
     var gpu: [Double] = []
     var diskActivity = TransferHistory()
     var networkActivity = TransferHistory()
+    var memory = MonitorHistory<MemoryStats>()
+    var sensors = MonitorHistory<SensorStats>()
+    var soc = MonitorHistory<SoCStats>()
+    var battery = MonitorHistory<BatteryStats>()
 
     mutating func append(_ snapshot: SystemSnapshot, includesPanelOnlySeries: Bool) {
         Self.push(snapshot.cpu.user, to: &cpuUser)
         Self.push(snapshot.cpu.system, to: &cpuSystem)
         let now = ProcessInfo.processInfo.systemUptime
+        let date = Date()
         if snapshot.sampledMetrics.contains(.network) {
             Self.push(snapshot.network.uploadBytesPerSecond, to: &upload)
             Self.push(snapshot.network.downloadBytesPerSecond, to: &download)
@@ -176,7 +189,14 @@ struct History: Equatable {
         if snapshot.sampledMetrics.contains(.disk) {
             diskActivity.append(snapshot.disk.readBytesPerSecond, snapshot.disk.writeBytesPerSecond, at: now)
         }
-        Self.push(snapshot.memory.pressure, to: &memoryPressure)
+        if snapshot.sampledMetrics.contains(.memory), snapshot.memory.total > 0 {
+            memory.append(snapshot.memory, at: now, date: date)
+        }
+        if snapshot.sampledMetrics.contains(.sensors) { sensors.append(snapshot.sensors, at: now, date: date) }
+        if snapshot.sampledMetrics.contains(.soc) { soc.append(snapshot.soc, at: now, date: date) }
+        if snapshot.sampledMetrics.contains(.battery), snapshot.battery.isPresent {
+            battery.append(snapshot.battery, at: now, date: date)
+        }
         if includesPanelOnlySeries {
             Self.push(snapshot.gpu.utilization, to: &gpu)
         }
@@ -195,6 +215,7 @@ final class SystemStore: ObservableObject {
     @Published private(set) var history = History()
 
     let sampler = SystemSampler()
+    let processTransfers = ProcessTransferMonitor()
     private var isPanelVisible = false
 
     init() {

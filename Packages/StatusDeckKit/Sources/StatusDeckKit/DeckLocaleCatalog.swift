@@ -156,6 +156,19 @@ Available|Disponible|Verfügbar|空き容量|사용 가능
 Read|Lecture|Lesen|読み込み|읽기
 Write|Écriture|Schreiben|書き込み|쓰기
 Network|Réseau|Netzwerk|ネットワーク|네트워크
+Network activity|Activité réseau|Netzwerkaktivität|ネットワークの活動|네트워크 활동
+Speed history|Historique des débits|Verlauf der Übertragungsraten|通信速度の履歴|전송 속도 기록
+Open speed history|Afficher l’historique des débits|Verlauf der Übertragungsraten öffnen|通信速度の履歴を開く|전송 속도 기록 열기
+Back to network|Retour au réseau|Zurück zum Netzwerk|ネットワークに戻る|네트워크로 돌아가기
+No sample in this interval|Aucune mesure sur cet intervalle|Kein Messwert in diesem Zeitraum|この時間帯の測定値なし|이 구간에 측정값 없음
+BSD name|Nom BSD|BSD-Name|BSD名|BSD 이름
+MAC address|Adresse MAC|MAC-Adresse|MACアドレス|MAC 주소
+Noise|Bruit|Rauschen|ノイズ|잡음
+IP address|Adresse IP|IP-Adresse|IPアドレス|IP 주소
+Subnet mask|Masque de sous-réseau|Subnetzmaske|サブネットマスク|서브넷 마스크
+Sampling…|Mesure en cours…|Messung läuft…|測定中…|측정 중…
+No visible process activity|Aucune activité de processus visible|Keine sichtbare Prozessaktivität|確認できるプロセスの活動なし|표시할 프로세스 활동 없음
+Process statistics unavailable|Statistiques des processus indisponibles|Prozessstatistiken nicht verfügbar|プロセスの統計を取得できません|프로세스 통계를 가져올 수 없음
 Network speed|Débit réseau|Netzwerkgeschwindigkeit|ネットワーク速度|네트워크 속도
 Interfaces|Interfaces|Schnittstellen|インターフェイス|인터페이스
 Upload|Envoi|Upload|アップロード|업로드
