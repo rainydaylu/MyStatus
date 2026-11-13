@@ -13,11 +13,20 @@ final class ClipboardModel: ObservableObject {
     @Published private(set) var totalBytes = 0
     @Published private(set) var access: ClipboardAccess = .allowed
     @Published private(set) var isDryRun = false
+    var rendersStaticSnapshot: Bool { isDryRun && CommandLine.arguments.contains("--snapshot") }
     @Published var query = "" { didSet { reload() } }
     @Published var filter: ClipFilter = .all { didSet { reload() } }
     @Published private(set) var sources: [ClipboardSource] = []
+    @Published private(set) var tags: [ClipboardTag] = []
+    @Published var selectedTagID: Int64? { didSet { reload() } }
     @Published var sourceFilter: String? { didSet { reload() } }
-    @Published var selectedID: Int64?
+    @Published var selectedID: Int64? { didSet { onPreviewChanged?() } }
+    @Published private(set) var keyboardSelectionCounter = 0
+    @Published var isPreviewExpanded = false { didSet { onPreviewChanged?() } }
+    var onPreviewChanged: (() -> Void)?
+    private var previewPointerGate = PointerSelectionGate()
+    var previewRowFrames: [Int64: CGRect] = [:]
+    var previewListFrame = CGRect.zero
     @Published var isPaused: Bool { didSet { defaults.set(isPaused, forKey: "paused"); pushOptions() } }
     @Published var retentionDays: Int { didSet { defaults.set(retentionDays, forKey: "retentionDays"); pushOptions() } }
     @Published var maximumItems: Int { didSet { defaults.set(maximumItems, forKey: "maximumItems"); pushOptions() } }
@@ -26,6 +35,7 @@ final class ClipboardModel: ObservableObject {
     private let defaults = PluginDefaults(pluginID: "com.statusdeck.clipboard")
     private var store: ClipboardStore?
     private var capture: ClipboardCapture?
+    private var isCopying = false
     private let ioQueue = DispatchQueue(label: "statusdeck.clipboard.model", qos: .userInitiated)
 
     /// Called after an entry has been put back on the clipboard.
@@ -68,6 +78,7 @@ final class ClipboardModel: ObservableObject {
     func stop() {
         capture?.stop()
         capture = nil
+        isCopying = false
         store = nil
         items = []
     }
@@ -94,42 +105,122 @@ final class ClipboardModel: ObservableObject {
         let query = query
         let filter = filter
         let source = sourceFilter
+        let tagID = selectedTagID
         ioQueue.async { [weak self] in
-            let items = store.fetch(query: query, filter: filter, source: source)
+            let items = store.fetch(query: query, filter: filter, source: source, tagID: tagID)
             let sources = store.sources()
+            let tags = store.tags()
             let count = store.count()
             let bytes = store.totalBytes()
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self, self.store === store, self.query == query,
-                          self.filter == filter, self.sourceFilter == source else { return }
+                          self.filter == filter, self.sourceFilter == source, self.selectedTagID == tagID else { return }
                     self.items = items
                     self.sources = sources
+                    self.tags = tags
                     self.totalCount = count
                     self.totalBytes = bytes
                     if self.selectedID == nil || !items.contains(where: { $0.id == self.selectedID }) {
                         self.selectedID = items.first?.id
                     }
+                    self.onPreviewChanged?()
                 }
             }
         }
     }
 
+    func addTag(name: String, color: ClipboardTagColor) {
+        guard let store else { return }
+        ioQueue.async { [weak self] in
+            guard let id = store.addTag(name: name, color: color) else { return }
+            DispatchQueue.main.async {
+                self?.filter = .all
+                self?.selectedTagID = id
+            }
+        }
+    }
+
+    func toggleTag(_ tag: ClipboardTag, for item: ClipboardItem) {
+        guard let store else { return }
+        ioQueue.async { [weak self] in
+            store.setTag(tag.id, for: item.id, included: !item.tagIDs.contains(tag.id))
+            DispatchQueue.main.async { self?.reload() }
+        }
+    }
+
+    func deleteTag(_ tag: ClipboardTag) {
+        guard let store else { return }
+        ioQueue.async { [weak self] in
+            store.deleteTag(tag.id)
+            DispatchQueue.main.async {
+                if self?.selectedTagID == tag.id { self?.selectedTagID = nil }
+                self?.reload()
+            }
+        }
+    }
+
     func copy(_ item: ClipboardItem, afterCopy: (() -> Void)? = nil) {
+        guard !isCopying else { return }
         guard let capture else {
             onCopied?()
+            afterCopy?()
             return
         }
+        isCopying = true
         ioQueue.async { [weak self] in
             let restored = capture.restore(item.id)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let self, self.capture === capture, restored else { return }
+                    guard let self, self.capture === capture else { return }
+                    self.isCopying = false
+                    guard restored else { return }
                     self.onCopied?()
                     afterCopy?()
                     self.reload()
                 }
             }
+        }
+    }
+
+    func selectPreview(_ item: ClipboardItem, pointer: CGPoint = NSEvent.mouseLocation) {
+        previewPointerGate.hold(at: pointer)
+        selectedID = item.id
+        isPreviewExpanded = true
+    }
+
+    func hoverPreview(_ item: ClipboardItem, pointer: CGPoint = NSEvent.mouseLocation, isDragging: Bool = NSEvent.pressedMouseButtons != 0) {
+        guard !isDragging, previewPointerGate.permitsHover(at: pointer) else { return }
+        if selectedID != item.id { selectedID = item.id }
+        if !isPreviewExpanded { isPreviewExpanded = true }
+    }
+
+    func holdPreviewSelection(pointer: CGPoint = NSEvent.mouseLocation) {
+        previewPointerGate.hold(at: pointer)
+    }
+
+    func resetPreviewInteraction() { previewPointerGate.reset() }
+
+    func copyPlainText(_ item: ClipboardItem) {
+        guard !isCopying, let capture else { return }
+        isCopying = true
+        ioQueue.async { [weak self] in
+            let copied = capture.restorePlainText(item.id)
+            DispatchQueue.main.async {
+                guard let self, self.capture === capture else { return }
+                self.isCopying = false
+                guard copied else { return }
+                self.onCopied?()
+                self.reload()
+            }
+        }
+    }
+
+    func loadPreview(for item: ClipboardItem, completion: @escaping (ClipboardPreviewDocument) -> Void) {
+        guard let store else { return }
+        ioQueue.async {
+            let document = ClipboardPreviewDocument.make(item: item, representations: store.representations(of: item.id))
+            DispatchQueue.main.async { completion(document) }
         }
     }
 
@@ -214,6 +305,7 @@ final class ClipboardModel: ObservableObject {
         guard !items.isEmpty else { return }
         let current = items.firstIndex { $0.id == selectedID } ?? 0
         selectedID = items[max(0, min(items.count - 1, current + offset))].id
+        keyboardSelectionCounter += 1
     }
 
     var selectedItem: ClipboardItem? {
@@ -225,10 +317,12 @@ final class ClipboardPlugin: BuiltInPlugin {
     private let model = ClipboardModel()
     private var browser: ClipboardBrowserController?
     private var hotKeyToken: DeckHotKeyToken?
+    private var legacyHotKeyToken: DeckHotKeyToken?
     private let defaults = PluginDefaults(pluginID: "com.statusdeck.clipboard")
     private let hotKeyModel = HotKeyModel()
 
-    static let defaultHotKey = DeckHotKey(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(controlKey | optionKey), label: "⌃⌥V")
+    static let defaultHotKey = DeckHotKey(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(cmdKey | shiftKey), label: "⇧⌘V")
+    static let legacyHotKey = DeckHotKey(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(controlKey | optionKey), label: "⌃⌥V")
 
     init(services: SharedServices) {
         super.init(manifest: PluginManifest(
@@ -247,7 +341,12 @@ final class ClipboardPlugin: BuiltInPlugin {
     }
 
     private var storedHotKey: DeckHotKey {
-        defaults.data("hotKey").flatMap { try? JSONDecoder().decode(DeckHotKey.self, from: $0) } ?? Self.defaultHotKey
+        Self.effectiveHotKey(defaults.data("hotKey").flatMap { try? JSONDecoder().decode(DeckHotKey.self, from: $0) })
+    }
+
+    static func effectiveHotKey(_ saved: DeckHotKey?) -> DeckHotKey {
+        guard let saved else { return defaultHotKey }
+        return saved.keyCode == legacyHotKey.keyCode && saved.modifiers == legacyHotKey.modifiers ? defaultHotKey : saved
     }
 
     override func didActivate() {
@@ -265,6 +364,7 @@ final class ClipboardPlugin: BuiltInPlugin {
 
     override func willDeactivate() {
         hotKeyToken = nil
+        legacyHotKeyToken = nil
         browser?.close()
         browser = nil
         model.stop()
@@ -281,14 +381,24 @@ final class ClipboardPlugin: BuiltInPlugin {
         browser?.show()
     }
 
+    var browserSnapshot: AnyView {
+        AnyView(ClipboardBrowserView(model: model))
+    }
+
     private func registerHotKey() {
         hotKeyToken = nil
+        legacyHotKeyToken = nil
         let hotKey = storedHotKey
         hotKeyToken = host?.registerHotKey(hotKey) { [weak self] in
             self?.browser?.toggle()
         }
         hotKeyModel.hotKey = hotKey
         hotKeyModel.failed = hotKeyToken == nil
+        if hotKey == Self.defaultHotKey {
+            legacyHotKeyToken = host?.registerHotKey(Self.legacyHotKey) { [weak self] in
+                self?.browser?.toggle()
+            }
+        }
     }
 
     override var sections: [DeckSection] {
@@ -305,7 +415,9 @@ final class ClipboardPlugin: BuiltInPlugin {
     }
 
     override var settingsView: AnyView? {
-        AnyView(ClipboardSettings(model: model, hotKey: hotKeyModel) { [weak self] newHotKey in
+        AnyView(ClipboardSettings(model: model, hotKey: hotKeyModel, onOpenBrowser: { [weak self] in
+            self?.browser?.show()
+        }) { [weak self] newHotKey in
             guard let self else { return }
             self.defaults.set(try? JSONEncoder().encode(newHotKey), forKey: "hotKey")
             self.registerHotKey()
@@ -337,6 +449,9 @@ enum ClipboardSamples {
             if let payload = ClipboardPayload.make(items: flavor(text), maxBytes: 1 << 20) {
                 store.insert(payload, sourceBundleID: bundle, sourceName: name, now: now.addingTimeInterval(-age))
             }
+        }
+        if let tag = store.addTag(name: DeckL("片段", "Snippets"), color: .red), let item = store.fetch().first {
+            store.setTag(tag, for: item.id, included: true)
         }
         let file = [[(type: PasteboardType.fileURL, data: Data("file:///Users/example/Documents/%E6%8A%A5%E5%91%8A.pdf".utf8))]]
         if let payload = ClipboardPayload.make(items: file, maxBytes: 1 << 20),

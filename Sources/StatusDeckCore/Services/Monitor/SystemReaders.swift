@@ -12,6 +12,14 @@ enum SystemControl {
         return sysctlbyname(name, &value, &size, nil, 0) == 0 ? value : nil
     }
 
+    static func string(_ name: String) -> String? {
+        var size = 0
+        guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+        var bytes = [CChar](repeating: 0, count: size)
+        guard sysctlbyname(name, &bytes, &size, nil, 0) == 0 else { return nil }
+        return String(cString: bytes)
+    }
+
     static func uptime(now: Date = Date()) -> TimeInterval {
         var bootTime = timeval()
         var size = MemoryLayout<timeval>.stride
@@ -74,14 +82,14 @@ final class CPUReader {
             let total = user + system + idle
             stats.cores.append(CoreLoad(
                 id: index,
-                kind: kinds[index] ?? .performance,
+                kind: kinds[index] ?? .unknown,
                 user: total > 0 ? user / total : 0,
                 system: total > 0 ? system / total : 0
             ))
         }
-        // The rings list efficiency cores first whatever order the kernel uses.
+        // Keep each kind together, from efficiency through super cores.
         stats.cores.sort { lhs, rhs in
-            lhs.kind == rhs.kind ? lhs.id < rhs.id : lhs.kind == .efficiency
+            lhs.kind == rhs.kind ? lhs.id < rhs.id : lhs.kind.rawValue < rhs.kind.rawValue
         }
         let count = Double(max(1, stats.cores.count))
         stats.user = stats.cores.map(\.user).reduce(0, +) / count
@@ -89,10 +97,8 @@ final class CPUReader {
         return stats
     }
 
-    /// `cluster-type` in the device tree is "E" or "P" per logical CPU. Newer
-    /// chips add other letters, all of which count as performance here.
-    private static func readCoreKinds() -> [Int: CoreKind] {
-        var kinds: [Int: CoreKind] = [:]
+    static func readCoreKinds() -> [Int: CoreKind] {
+        var clusters: [Int: String] = [:]
         let count = SystemControl.int("hw.logicalcpu") ?? 0
         for index in 0..<count {
             let entry = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/cpus/cpu\(index)")
@@ -100,13 +106,70 @@ final class CPUReader {
             defer { IOObjectRelease(entry) }
             if let data = IORegistryEntryCreateCFProperty(entry, "cluster-type" as CFString, kCFAllocatorDefault, 0)?
                 .takeRetainedValue() as? Data, let first = data.first {
-                kinds[index] = first == UInt8(ascii: "E") ? .efficiency : .performance
+                clusters[index] = String(UnicodeScalar(first))
             }
         }
-        if kinds.isEmpty, let efficiency = SystemControl.int("hw.perflevel1.logicalcpu") {
-            for index in 0..<count { kinds[index] = index < efficiency ? .efficiency : .performance }
+        let levels = (0..<(SystemControl.int("hw.nperflevels") ?? 0)).map { index in
+            CPUPerformanceLevel(name: SystemControl.string("hw.perflevel\(index).name") ?? "",
+                                count: SystemControl.int("hw.perflevel\(index).logicalcpu") ?? 0)
         }
-        return kinds
+        return CPUCoreTopology.resolve(count: count, clusters: clusters, levels: levels)
+    }
+
+    static func readClusterKinds() -> [Int: CoreKind] {
+        let kinds = readCoreKinds()
+        var result: [Int: CoreKind] = [:]
+        for (index, kind) in kinds {
+            let entry = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/cpus/cpu\(index)")
+            guard entry != 0 else { continue }
+            defer { IOObjectRelease(entry) }
+            if let cluster = IORegistryEntryCreateCFProperty(entry, "logical-cluster-id" as CFString, kCFAllocatorDefault, 0)?
+                .takeRetainedValue() as? NSNumber {
+                result[cluster.intValue] = kind
+            }
+        }
+        return result
+    }
+}
+
+struct CPUPerformanceLevel {
+    let name: String
+    let count: Int
+    var kind: CoreKind {
+        switch name.lowercased() {
+        case "efficiency": .efficiency
+        case "performance": .performance
+        case "super": .superCore
+        default: .unknown
+        }
+    }
+}
+
+enum CPUCoreTopology {
+    static func resolve(count: Int, clusters: [Int: String], levels: [CPUPerformanceLevel]) -> [Int: CoreKind] {
+        let hasSuper = levels.contains { $0.kind == .superCore }
+        var result: [Int: CoreKind] = [:]
+        // Kernel CPU IDs run from the lower-performance clusters upwards;
+        // perflevel0 is the fastest. Use named levels only if all counts agree.
+        if levels.reduce(0, { $0 + max(0, $1.count) }) == count {
+            var index = 0
+            for level in levels.reversed() {
+                for _ in 0..<max(0, level.count) {
+                    result[index] = level.kind
+                    index += 1
+                }
+            }
+        }
+        for (index, cluster) in clusters where index >= 0 && index < count {
+            switch cluster.uppercased() {
+            case "E": result[index] = .efficiency
+            case "M": result[index] = .performance
+            case "P": result[index] = hasSuper ? .superCore : .performance
+            case "S": result[index] = .superCore
+            default: result[index] = .unknown
+            }
+        }
+        return result
     }
 }
 

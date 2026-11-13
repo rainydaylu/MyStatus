@@ -1,55 +1,70 @@
-// Generates Support/AppIcon.icns from Support/AppIcon.png.
-// Run from the repository root: swift scripts/make-icon.swift
-import Foundation
-import ImageIO
-import UniformTypeIdentifiers
+// Draws Support/AppIcon.icns. Run with: swift scripts/make-icon.swift
+import AppKit
 
-let support = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    .appendingPathComponent("Support", isDirectory: true)
-let sourceURL = support.appendingPathComponent("AppIcon.png")
-guard let source = CGImageSourceCreateWithURL(sourceURL as CFURL, nil) else {
-    fatalError("Could not read Support/AppIcon.png")
-}
+func drawIcon(pixels: Int) -> NSBitmapImageRep {
+    let rep = NSBitmapImageRep(
+        bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
+        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+        colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+    )!
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
 
-func appendHeader(_ type: String, payloadLength: Int, to data: inout Data) {
-    data.append(contentsOf: type.utf8)
-    var length = UInt32(payloadLength + 8).bigEndian
-    withUnsafeBytes(of: &length) { data.append(contentsOf: $0) }
-}
+    let size = CGFloat(pixels)
+    // The standard macOS icon grid leaves a margin around the tile.
+    let tile = NSRect(x: size * 0.1, y: size * 0.1, width: size * 0.8, height: size * 0.8)
+    let shape = NSBezierPath(roundedRect: tile, xRadius: size * 0.18, yRadius: size * 0.18)
+    NSGradient(starting: NSColor(red: 0.13, green: 0.17, blue: 0.27, alpha: 1),
+               ending: NSColor(red: 0.05, green: 0.07, blue: 0.13, alpha: 1))?
+        .draw(in: shape, angle: -90)
 
-// ICNS uses distinct types for 1× and 2× images even at the same pixel size.
-let representations: [(type: String, pixels: Int)] = [
-    ("icp4", 16), ("ic11", 32),
-    ("icp5", 32), ("ic12", 64),
-    ("ic07", 128), ("ic13", 256),
-    ("ic08", 256), ("ic14", 512),
-    ("ic09", 512), ("ic10", 1024),
-]
+    let center = NSPoint(x: size / 2, y: size / 2)
+    let radius = size * 0.26
+    let width = size * 0.052
 
-var contents = Data()
-for representation in representations {
-    let pixels = representation.pixels
-    let options = [
-        kCGImageSourceCreateThumbnailFromImageAlways: true,
-        kCGImageSourceThumbnailMaxPixelSize: pixels,
-    ] as CFDictionary
-    let png = NSMutableData()
-    guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options),
-          image.width == pixels, image.height == pixels,
-          let destination = CGImageDestinationCreateWithData(
-              png, UTType.png.identifier as CFString, 1, nil
-          ) else {
-        fatalError("Could not generate the \(pixels) × \(pixels) icon")
+    func arc(from start: CGFloat, to end: CGFloat, _ color: NSColor) {
+        let path = NSBezierPath()
+        path.appendArc(withCenter: center, radius: radius, startAngle: start, endAngle: end, clockwise: true)
+        path.lineWidth = width
+        path.lineCapStyle = .round
+        color.setStroke()
+        path.stroke()
     }
-    CGImageDestinationAddImage(destination, image, nil)
-    guard CGImageDestinationFinalize(destination) else {
-        fatalError("Could not encode the \(pixels) × \(pixels) icon")
+    arc(from: 215, to: -35, NSColor.white.withAlphaComponent(0.14))
+    arc(from: 215, to: 30, NSColor(red: 0.04, green: 0.49, blue: 1, alpha: 1))
+    arc(from: 30, to: -5, NSColor(red: 0.965, green: 0.30, blue: 0.62, alpha: 1))
+
+    // A small bar graph inside the gauge.
+    let heights: [CGFloat] = [0.32, 0.55, 0.4, 0.8, 0.62, 0.95, 0.5]
+    let barWidth = size * 0.034
+    let gap = size * 0.018
+    let total = CGFloat(heights.count) * barWidth + CGFloat(heights.count - 1) * gap
+    let base = center.y - size * 0.11
+    for (index, height) in heights.enumerated() {
+        let x = center.x - total / 2 + CGFloat(index) * (barWidth + gap)
+        let bar = NSRect(x: x, y: base, width: barWidth, height: size * 0.22 * height)
+        NSColor(red: 0.04, green: 0.49, blue: 1, alpha: 1).setFill()
+        NSBezierPath(roundedRect: bar, xRadius: barWidth / 3, yRadius: barWidth / 3).fill()
     }
-    appendHeader(representation.type, payloadLength: png.length, to: &contents)
-    contents.append(png as Data)
+
+    NSGraphicsContext.restoreGraphicsState()
+    return rep
 }
 
-var icon = Data()
-appendHeader("icns", payloadLength: contents.count, to: &icon)
-icon.append(contents)
-try icon.write(to: support.appendingPathComponent("AppIcon.icns"), options: .atomic)
+let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+let iconset = FileManager.default.temporaryDirectory.appendingPathComponent("StatusDeck-\(UUID().uuidString).iconset")
+try FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
+for points in [16, 32, 128, 256, 512] {
+    for scale in [1, 2] {
+        let name = scale == 1 ? "icon_\(points)x\(points).png" : "icon_\(points)x\(points)@2x.png"
+        let data = drawIcon(pixels: points * scale).representation(using: .png, properties: [:])!
+        try data.write(to: iconset.appendingPathComponent(name))
+    }
+}
+let process = Process()
+process.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
+process.arguments = ["-c", "icns", iconset.path, "-o", root.appendingPathComponent("Support/AppIcon.icns").path]
+try process.run()
+process.waitUntilExit()
+try FileManager.default.removeItem(at: iconset)
+guard process.terminationStatus == 0 else { fatalError("iconutil failed") }

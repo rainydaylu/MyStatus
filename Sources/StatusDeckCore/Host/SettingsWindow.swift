@@ -426,7 +426,7 @@ private struct GeneralSettings: View {
                         materialSlider(DeckL("背景模糊", "Background blur"), value: $backgroundBlur, id: "backgroundBlur")
                         materialSlider(DeckL("鼠标光晕", "Pointer glow"), value: $glow, id: "pointerGlow")
                     }
-                    Text(DeckL("背景深度调节灰雾，背景模糊调节桌面细节的柔化程度。", "Background depth controls the gray tint. Background blur softens desktop details."))
+                    Text(DeckL("背景深度调节外侧暗部，背景模糊调节卡片内的玻璃模糊强度。", "Background depth controls the outer shade. Background blur controls the glass effect inside cards."))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

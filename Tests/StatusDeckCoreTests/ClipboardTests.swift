@@ -236,6 +236,24 @@ private func payload(_ string: String) -> ClipboardPayload {
 
 /// Uses an in-memory pasteboard: no pasteboardd permission is needed.
 @Suite struct CaptureTests {
+    @Test func copyPlainTextStripsFormatsButDoesNotChangeTheStoredOriginal() throws {
+        let (pasteboard, store, capture) = try setup()
+        let source = NSPasteboardItem()
+        source.setString("Hello\tWorld\n1\t2", forType: .string)
+        source.setData(Data("{\\rtf1 Hello World}".utf8), forType: NSPasteboard.PasteboardType(PasteboardType.rtf))
+        pasteboard.clearContents()
+        pasteboard.writeObjects([source])
+        capture.pollNow()
+        let row = try #require(store.fetch().first)
+        let original = store.representations(of: row.id)
+        #expect(capture.restorePlainText(row.id))
+        let restored = try #require(pasteboard.pasteboardItems?.first)
+        #expect(restored.types == [.string])
+        #expect(restored.string(forType: .string) == "Hello\tWorld\n1\t2")
+        #expect(store.representations(of: row.id) == original)
+        capture.pollNow()
+        #expect(store.count() == 1)
+    }
     private func setup(source: (bundleID: String?, name: String?) = ("com.test.app", "Test")) throws -> (MemoryCapturePasteboard, ClipboardStore, ClipboardCapture) {
         let pasteboard = MemoryCapturePasteboard()
         pasteboard.clearContents()

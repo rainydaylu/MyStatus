@@ -42,18 +42,13 @@ func wifiSubtitle(_ wifi: WiFiState) -> String {
 
 private struct WiFiRow: View {
     @ObservedObject var wifi: WiFiController
+    @Environment(\.openPanelDetail) private var openDetails
     var body: some View {
         let state = wifi.state
-        Button { wifi.setPower(!state.isPoweredOn) } label: {
-            PanelTileLabel(title: "Wi-Fi", value: wifiSubtitle(state), symbol: state.isPoweredOn ? "wifi" : "wifi.slash",
-                           isActive: state.isPoweredOn)
-                .padding(.horizontal, 12)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!state.isAvailable)
-        .help(state.isPoweredOn ? DeckL("关闭 Wi-Fi", "Turn Wi-Fi off") : DeckL("开启 Wi-Fi", "Turn Wi-Fi on"))
+        PanelSplitTile(title: "Wi-Fi", value: wifiSubtitle(state), symbol: state.isPoweredOn ? "wifi" : "wifi.slash",
+                       isActive: state.isPoweredOn, isEnabled: state.isAvailable,
+                       toggleHelp: state.isPoweredOn ? DeckL("关闭 Wi-Fi", "Turn Wi-Fi off") : DeckL("开启 Wi-Fi", "Turn Wi-Fi on"),
+                       onToggle: { wifi.setPower(!state.isPoweredOn) }, onDetails: { openDetails?() })
     }
 }
 

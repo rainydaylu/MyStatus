@@ -192,7 +192,7 @@ struct ClipboardPanelSection: View {
 }
 
 /// Explains the system prompt instead of leaving it to look like a malfunction.
-private struct ClipboardAccessNotice: View {
+struct ClipboardAccessNotice: View {
     @ObservedObject var model: ClipboardModel
     @Environment(\.deckTheme) private var theme
 
@@ -225,82 +225,18 @@ private struct ClipboardAccessNotice: View {
 
 // MARK: - The browser window
 
-/// A compact edge shelf with a keyboard-driven history list and inline preview.
+/// The keyboard-driven glass shelf opened by the global shortcut.
 struct ClipboardBrowserView: View {
     @ObservedObject var model: ClipboardModel
     var canPaste = false
     var onClose: () -> Void = {}
-    @FocusState private var isSearchFocused: Bool
-    @State private var showsPreview = false
-    @State private var isDropTarget = false
-    @Environment(\.deckTheme) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Label(DeckL("剪贴板"), systemImage: "doc.on.clipboard").font(.headline)
-                Spacer()
-                DeckIconButton(symbol: "xmark", help: DeckL("关闭", "Close"), action: onClose)
-            }
-            ClipboardAccessNotice(model: model)
-            HStack(spacing: 6) {
-                ClipboardSearchField(model: model, focus: $isSearchFocused)
-                Menu {
-                    Button(DeckL("所有来源", "All sources")) { model.sourceFilter = nil }
-                    ForEach(model.sources) { source in
-                        Button(source.name) { model.sourceFilter = source.id }
-                    }
-                } label: {
-                    Image(systemName: model.sourceFilter == nil ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
-                }
-                .fixedSize()
-                .help(model.sources.first { $0.id == model.sourceFilter }?.name ?? DeckL("筛选来源应用", "Filter by source app"))
-            }
-            ClipboardFilterBar(model: model)
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 4) {
-                        if model.items.isEmpty {
-                            Text(DeckL("没有找到匹配的内容。")).font(.callout).foregroundStyle(theme.secondary).padding(10)
-                        }
-                        ForEach(model.items) { item in
-                            ClipRow(item: item, isSelected: item.id == model.selectedID, lineLimit: 2,
-                                    onCopy: { model.copy(item) }, onPin: { model.togglePin(item) },
-                                    onDelete: { model.delete(item) }, onSelect: { model.selectedID = item.id })
-                                .padding(.vertical, 3)
-                                .onDrag { model.dragProvider(for: item) }
-                                .contextMenu { Button(DeckL("复制")) { model.copy(item) } }
-                                .id(item.id)
-                        }
-                    }
-                }
-                .onChange(of: model.selectedID) { id in if let id { proxy.scrollTo(id) } }
-            }
-            if showsPreview {
-                Divider()
-                ClipPreview(item: model.selectedItem).frame(height: 132)
-            }
-            HStack(spacing: 8) {
-                Text(DeckL("↑↓ 选择", "↑↓ Select"))
-                Text(canPaste ? DeckL("↩ 粘贴", "↩ Paste") : DeckL("↩ 复制", "↩ Copy"))
-                Spacer()
-                Button(DeckL("预览", "Preview")) { showsPreview.toggle() }.buttonStyle(.link)
-            }
-            .font(.caption).foregroundStyle(theme.secondary)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(DeckCardBackground())
-        .overlay {
-            if isDropTarget { RoundedRectangle(cornerRadius: 18).strokeBorder(Color.accentColor, lineWidth: 2) }
-        }
-        .padding(4)
-        .onDrop(of: [.fileURL, .url, .image, .text], isTargeted: $isDropTarget, perform: model.importDrop)
-        .onAppear { isSearchFocused = true }
+        ClipboardShelf(model: model, canPaste: canPaste, onClose: onClose)
     }
 }
 
-private struct ClipPreview: View {
+struct ClipPreview: View {
     let item: ClipboardItem?
     @Environment(\.deckTheme) private var theme
 
@@ -329,6 +265,8 @@ private struct ClipPreview: View {
         case .color: DeckL("颜色")
         case .image: DeckL("图片")
         case .file: DeckL("文件")
+        case .richText: DeckL("富文本", "Rich text")
+        case .table: DeckL("表格", "Table")
         }
     }
 
@@ -369,11 +307,13 @@ private struct ClipPreview: View {
 struct ClipboardSettings: View {
     @ObservedObject var model: ClipboardModel
     @ObservedObject var hotKey: HotKeyModel
+    var onOpenBrowser: () -> Void = {}
     let onHotKeyChange: (DeckHotKey) -> Void
 
     @State private var isConfirmingClear = false
 
     var body: some View {
+        Button(DeckL("打开剪贴板", "Open clipboard"), action: onOpenBrowser)
         Toggle(DeckL("暂停记录"), isOn: $model.isPaused)
         HStack {
             Text(DeckL("打开历史的快捷键"))

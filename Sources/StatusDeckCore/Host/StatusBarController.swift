@@ -3,8 +3,8 @@ import Carbon
 import Combine
 import StatusDeckKit
 
-/// One menu bar icon per plugin that wants one. With none, a plain icon stays so
-/// that there is always a way to reach the panel and turn plugins back on.
+/// The main status icon and readouts share one button. Other plugins keep their
+/// own items, and a fallback keeps settings reachable when all items are disabled.
 @MainActor
 final class StatusBarController {
     private let manager: PluginManager
@@ -16,7 +16,9 @@ final class StatusBarController {
 
     private final class ManagedItem {
         let statusItem: NSStatusItem
-        var imageCancellable: AnyCancellable?
+        var models: [DeckMenuBarItem] = []
+        var images: [NSImage?] = []
+        var imageCancellables: [AnyCancellable] = []
 
         init(statusItem: NSStatusItem) {
             self.statusItem = statusItem
@@ -40,17 +42,20 @@ final class StatusBarController {
     }
 
     func sync() {
-        let wanted = manager.activePlugins.compactMap { plugin -> (String, DeckMenuBarItem)? in
+        let sources = manager.activePlugins.compactMap { plugin -> (String, DeckMenuBarItem)? in
             plugin.menuBarItem.map { (plugin.manifest.id, $0) }
         }
+        let wanted = StatusBarGroup.groups(sources)
 
-        for id in items.keys where !wanted.contains(where: { $0.0 == id }) {
+        for id in items.keys where !wanted.contains(where: { $0.id == id }) {
             if let item = items.removeValue(forKey: id) {
                 NSStatusBar.system.removeStatusItem(item.statusItem)
             }
         }
-        for (id, model) in wanted where items[id] == nil {
-            items[id] = makeItem(id: id, model: model)
+        for group in wanted {
+            let managed = items[group.id] ?? makeItem(id: group.id)
+            items[group.id] = managed
+            bind(group.models, to: managed)
         }
 
         if wanted.isEmpty {
@@ -61,7 +66,7 @@ final class StatusBarController {
         }
     }
 
-    private func makeItem(id: String, model: DeckMenuBarItem) -> ManagedItem {
+    private func makeItem(id: String) -> ManagedItem {
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.autosaveName = "StatusDeck.\(id)"
         // The in-app switch controls visibility for the primary icon.
@@ -69,16 +74,36 @@ final class StatusBarController {
         let managed = ManagedItem(statusItem: statusItem)
         configure(statusItem)
         if let button = statusItem.button {
-            button.image = model.image
             let catcher = ScrollCatcher(frame: button.bounds)
             catcher.autoresizingMask = [.width, .height]
-            catcher.onScroll = { [weak model] delta in model?.onScroll?(delta) }
+            catcher.onScroll = { [weak managed] delta in
+                managed?.models.first(where: { $0.onScroll != nil })?.onScroll?(delta)
+            }
             button.addSubview(catcher)
         }
-        managed.imageCancellable = model.$image.sink { [weak statusItem] image in
-            statusItem?.button?.image = image
-        }
         return managed
+    }
+
+    private func bind(_ models: [DeckMenuBarItem], to managed: ManagedItem) {
+        guard models.map(ObjectIdentifier.init) != managed.models.map(ObjectIdentifier.init) else { return }
+        managed.imageCancellables.removeAll()
+        managed.models = models
+        managed.images = models.map(\.image)
+        managed.statusItem.button?.image = StatusBarGroup.image(managed.images)
+        for (index, model) in models.enumerated() {
+            let sourceID = ObjectIdentifier(model)
+            let subscription = model.$image
+                .receive(on: DispatchQueue.main)
+                .sink { [weak managed] image in
+                    MainActor.assumeIsolated {
+                        guard let managed, managed.models.indices.contains(index),
+                              ObjectIdentifier(managed.models[index]) == sourceID else { return }
+                        managed.images[index] = image
+                        managed.statusItem.button?.image = StatusBarGroup.image(managed.images)
+                    }
+                }
+            managed.imageCancellables.append(subscription)
+        }
     }
 
     private func makeFallback() -> NSStatusItem {
@@ -97,6 +122,7 @@ final class StatusBarController {
         button.action = #selector(clicked)
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         button.imagePosition = .imageOnly
+        button.setAccessibilityLabel("MyStatus")
     }
 
     @objc private func clicked(_ sender: NSStatusBarButton) {
@@ -129,6 +155,52 @@ final class StatusBarController {
 
     @objc private func settingsChosen() {
         openSettings()
+    }
+}
+
+@MainActor
+struct StatusBarGroup {
+    let id: String
+    let models: [DeckMenuBarItem]
+
+    static func groups(_ sources: [(String, DeckMenuBarItem)]) -> [StatusBarGroup] {
+        let mainIDs = [TrioIconPlugin.id, StatsPillPlugin.id]
+        let main = mainIDs.compactMap { id in sources.first(where: { $0.0 == id })?.1 }
+        let independent = sources.filter { !mainIDs.contains($0.0) }
+            .map { StatusBarGroup(id: $0.0, models: [$0.1]) }
+        guard !main.isEmpty else { return independent }
+        return [StatusBarGroup(id: TrioIconPlugin.id, models: main)] + independent
+    }
+
+    static func image(_ sources: [NSImage?]) -> NSImage? {
+        let images = sources.compactMap { $0 }
+        guard let first = images.first else { return nil }
+        guard images.count > 1 else { return first }
+        let gap: CGFloat = 4
+        let size = NSSize(width: images.reduce(0) { $0 + $1.size.width } + gap * CGFloat(images.count - 1),
+                          height: images.map(\.size.height).max() ?? 22)
+        let combined = NSImage(size: size, flipped: false) { bounds in
+            let isDark = NSAppearance.currentDrawing().bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let tint: NSColor = isDark ? .white : .black
+            var x: CGFloat = 0
+            for source in images {
+                let frame = NSRect(x: x, y: (bounds.height - source.size.height) / 2,
+                                   width: source.size.width, height: source.size.height)
+                NSGraphicsContext.saveGraphicsState()
+                NSBezierPath(rect: frame).addClip()
+                source.draw(in: frame)
+                if source.isTemplate {
+                    NSGraphicsContext.current?.cgContext.setBlendMode(.sourceAtop)
+                    tint.setFill()
+                    NSBezierPath(rect: frame).fill()
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                x += source.size.width + gap
+            }
+            return true
+        }
+        combined.isTemplate = false
+        return combined
     }
 }
 
@@ -171,18 +243,26 @@ final class HotKeyCenter {
             let center = center
             // Dropping a token can happen from anywhere; the table belongs to the main actor.
             DispatchQueue.main.async {
-                MainActor.assumeIsolated { center?.handlers[identifier] = nil }
+                MainActor.assumeIsolated {
+                    center?.handlers[identifier] = nil
+                    center?.shortcuts[identifier] = nil
+                    center?.lastInvocation[identifier] = nil
+                }
             }
         }
     }
 
     private var handlers: [UInt32: () -> Void] = [:]
+    private var shortcuts: [UInt32: DeckHotKey] = [:]
+    private var lastInvocation: [UInt32: TimeInterval] = [:]
+    private var localKeyMonitor: Any?
+    private var globalKeyMonitor: Any?
     private var nextIdentifier: UInt32 = 1
     private var isInstalled = false
     private static let signature: OSType = 0x53444B48 // "SDKH"
 
     func register(_ hotKey: DeckHotKey, handler: @escaping () -> Void) -> DeckHotKeyToken? {
-        installIfNeeded()
+        guard installIfNeeded() else { return nil }
         let identifier = nextIdentifier
         nextIdentifier += 1
         var reference: EventHotKeyRef?
@@ -190,14 +270,40 @@ final class HotKeyCenter {
         let status = RegisterEventHotKey(hotKey.keyCode, hotKey.modifiers, id, GetApplicationEventTarget(), 0, &reference)
         guard status == noErr, let reference else { return nil }
         handlers[identifier] = handler
+        shortcuts[identifier] = hotKey
         return Token(reference: reference, identifier: identifier, center: self)
     }
 
-    private func installIfNeeded() {
-        guard !isInstalled else { return }
-        isInstalled = true
+    static func carbonModifiers(_ flags: NSEvent.ModifierFlags) -> UInt32 {
+        var result: UInt32 = 0
+        if flags.contains(.command) { result |= UInt32(cmdKey) }
+        if flags.contains(.shift) { result |= UInt32(shiftKey) }
+        if flags.contains(.control) { result |= UInt32(controlKey) }
+        if flags.contains(.option) { result |= UInt32(optionKey) }
+        return result
+    }
+
+    private func handleKey(_ event: NSEvent) -> Bool {
+        let modifiers = Self.carbonModifiers(event.modifierFlags)
+        guard let id = shortcuts.first(where: {
+            $0.value.keyCode == UInt32(event.keyCode) && $0.value.modifiers == modifiers
+        })?.key else { return false }
+        if !event.isARepeat { invoke(id) }
+        return true
+    }
+
+    private func invoke(_ identifier: UInt32) {
+        let now = ProcessInfo.processInfo.systemUptime
+        // Carbon and AppKit may both deliver the same physical press.
+        guard now - (lastInvocation[identifier] ?? -.infinity) > 0.15 else { return }
+        lastInvocation[identifier] = now
+        handlers[identifier]?()
+    }
+
+    private func installIfNeeded() -> Bool {
+        guard !isInstalled else { return true }
         var type = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
+        let status = InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
             guard let event, let context else { return OSStatus(eventNotHandledErr) }
             var id = EventHotKeyID()
             let status = GetEventParameter(
@@ -209,9 +315,22 @@ final class HotKeyCenter {
             let center = Unmanaged<HotKeyCenter>.fromOpaque(context).takeUnretainedValue()
             let identifier = id.id
             DispatchQueue.main.async {
-                MainActor.assumeIsolated { center.handlers[identifier]?() }
+                MainActor.assumeIsolated { center.invoke(identifier) }
             }
             return noErr
         }, 1, &type, Unmanaged.passUnretained(self).toOpaque(), nil)
+        isInstalled = status == noErr
+        if isInstalled {
+            // Carbon remains the permission-free global route. AppKit also
+            // covers directly delivered key events and existing authorized
+            // keyboard monitoring; neither path requests a new permission.
+            localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                MainActor.assumeIsolated { self?.handleKey(event) == true ? nil : event }
+            }
+            globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                MainActor.assumeIsolated { _ = self?.handleKey(event) }
+            }
+        }
+        return isInstalled
     }
 }

@@ -8,6 +8,24 @@ import Foundation
 /// `--diagnose-audio`: prints what every display and audio device actually answers.
 /// With `--write`, nudges each display's volume and reads it back, then restores it.
 enum Diagnostics {
+    static func runCPU() {
+        let kinds = CPUReader.readCoreKinds()
+        for kind in CoreKind.allCases {
+            let ids = kinds.filter { $0.value == kind }.keys.sorted()
+            if !ids.isEmpty { print("\(kind.title): count=\(ids.count), ids=\(ids)") }
+        }
+        let reader = CPUReader()
+        let soc = IOReportReader()
+        _ = reader.read()
+        _ = soc?.read()
+        Thread.sleep(forTimeInterval: 1)
+        let cpu = reader.read()
+        let sample = soc?.read() ?? SoCStats()
+        for kind in cpu.coreKinds {
+            print("\(kind.title): load=\(Format.percent(cpu.average(of: kind))), frequency=\(Format.gigahertz(sample.frequency(for: kind)))")
+        }
+    }
+
     @MainActor
     static func runAudio(write: Bool) {
         var ids = [CGDirectDisplayID](repeating: 0, count: 16)

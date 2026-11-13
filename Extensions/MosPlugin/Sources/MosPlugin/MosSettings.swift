@@ -122,8 +122,11 @@ private struct MosNumberSetting: View {
         let limited = Binding(get: { value }, set: { proposed in
             if proposed.isFinite { value = min(range.upperBound, max(range.lowerBound, proposed)) }
         })
+        let sliderValue = Binding(get: { limited.wrappedValue }, set: { proposed in
+            limited.wrappedValue = range.lowerBound + ((proposed - range.lowerBound) / step).rounded() * step
+        })
         LabeledContent(title) {
-            Slider(value: limited, in: range, step: step)
+            Slider(value: sliderValue, in: range)
                 .accessibilityLabel(title)
             TextField(title, value: limited, format: .number.precision(.fractionLength(2)))
                 .labelsHidden()

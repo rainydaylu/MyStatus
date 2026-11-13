@@ -19,13 +19,21 @@ struct TransferHistory: Equatable {
     }
 
     func bins(seconds: Int, count: Int) -> (first: [Double], second: [Double]) {
-        var first = Array(repeating: 0.0, count: count)
+        let samples = measuredBins(seconds: seconds, count: count)
+        return (samples.first.map { $0 ?? 0 }, samples.second.map { $0 ?? 0 })
+    }
+
+    /// Missing slots are not zero-rate measurements. Curves join recorded points.
+    func measuredBins(seconds: Int, count: Int) -> (first: [Double?], second: [Double?]) {
+        guard count > 0 else { return ([], []) }
+        var first = [Double?](repeating: nil, count: count)
         var second = first
         guard let start = start(seconds: seconds), count > 0 else { return (first, second) }
+        let binWidth = Double(seconds) / Double(count)
         for sample in samples.reversed().prefix(while: { $0.at >= start }) {
-            let index = min(count - 1, Int((sample.at - start) / Double(seconds) * Double(count)))
-            first[index] = max(first[index], sample.first)
-            second[index] = max(second[index], sample.second)
+            let index = min(count - 1, Int((sample.at - start) / binWidth))
+            first[index] = max(first[index] ?? 0, sample.first)
+            second[index] = max(second[index] ?? 0, sample.second)
         }
         return (first, second)
     }

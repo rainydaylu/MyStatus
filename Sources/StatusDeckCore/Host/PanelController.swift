@@ -84,6 +84,7 @@ final class PanelState: ObservableObject {
 /// The native material for an individual menu control, or a detail popover.
 struct MenuPanelSurface: View {
     var cornerRadius: CGFloat = DeckTheme.cardRadius
+    @AppStorage(PanelBackdropBlur.key) private var blur = PanelBackdropBlur.defaultValue
     @Environment(\.deckTheme) private var theme
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.deckGlassStrength) private var translucency
@@ -116,17 +117,45 @@ struct MenuPanelSurface: View {
                     .background {
                         if usesGlass {
                             if #available(macOS 26.0, *) {
-                                NativeMenuGlass(cornerRadius: cornerRadius, isDark: isDark, isClear: translucency >= 0.85)
+                                NativeMenuGlass(cornerRadius: cornerRadius, isDark: isDark,
+                                                isClear: translucency >= 0.85, intensity: blur)
                             } else {
-                                FrostedMenuSurface(cornerRadius: cornerRadius)
+                                FrostedMenuSurface(cornerRadius: cornerRadius, intensity: blur)
                             }
                         }
                     }
             }
         }
+        .clipShape(shape)
         .overlay(shape.strokeBorder(Color.white.opacity(isDark ? 0.18 : 0.42), lineWidth: 0.6))
+        .background {
+            MenuPanelShadow(cornerRadius: cornerRadius, isDark: isDark)
+                .padding(-24)
+        }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// Draw the shadow separately so glass cannot turn it into a bright material.
+private struct MenuPanelShadow: View {
+    let cornerRadius: CGFloat
+    let isDark: Bool
+
+    var body: some View {
+        Canvas { context, size in
+            let bounds = CGRect(origin: .zero, size: size).insetBy(dx: 24, dy: 24)
+            guard bounds.width > 0, bounds.height > 0 else { return }
+            let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).path(in: bounds)
+            context.drawLayer { layer in
+                layer.addFilter(.shadow(color: .black.opacity(isDark ? 0.28 : 0.16),
+                                        radius: 9, x: 0, y: 3, options: .shadowOnly))
+                layer.fill(shape, with: .color(.black))
+            }
+            // The card's interior stays transparent, including at full translucency.
+            context.blendMode = .destinationOut
+            context.fill(shape, with: .color(.black))
+        }
     }
 }
 
@@ -135,9 +164,12 @@ private struct NativeMenuGlass: NSViewRepresentable {
     let cornerRadius: CGFloat
     let isDark: Bool
     let isClear: Bool
+    let intensity: Double
 
     func makeNSView(context: Context) -> NSGlassEffectView {
         let view = NSGlassEffectView(frame: .zero)
+        view.wantsLayer = true
+        view.layer?.masksToBounds = true
         view.contentView = NSView(frame: .zero)
         return view
     }
@@ -146,11 +178,14 @@ private struct NativeMenuGlass: NSViewRepresentable {
         view.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
         view.style = isClear ? .clear : .regular
         view.cornerRadius = cornerRadius
+        view.layer?.cornerRadius = cornerRadius
+        view.alphaValue = min(1, max(0, intensity))
     }
 }
 
 private struct FrostedMenuSurface: NSViewRepresentable {
     let cornerRadius: CGFloat
+    let intensity: Double
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.material = .popover
@@ -162,7 +197,9 @@ private struct FrostedMenuSurface: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.alphaValue = min(1, max(0, intensity))
+    }
 }
 
 struct MenuPanelPalette: ViewModifier {
@@ -362,9 +399,11 @@ final class PanelHoverModel: ObservableObject {
     var drilldownFrame: CGRect?
     var drilldownTargets: [String: PanelDrilldownTarget] = [:]
     private var drilldownIntent = HoverIntent()
+    private var clickGate = PointerSelectionGate()
     private var dismissedTrigger: (id: String, frame: CGRect)?
 
     func reset() {
+        clickGate.reset()
         active = nil
         rowFrames = [:]
         panelFrame = .zero
@@ -388,6 +427,11 @@ final class PanelHoverModel: ObservableObject {
     }
 
     func openDrilldown(_ next: PanelDrilldown) {
+        clickGate.hold(at: NSEvent.mouseLocation)
+        openDrilldown(next, fromHover: false)
+    }
+
+    private func openDrilldown(_ next: PanelDrilldown, fromHover: Bool) {
         guard drilldown?.id != next.id else { return }
         dismissedTrigger = nil
         drilldownIntent.force(next.id)
@@ -396,6 +440,7 @@ final class PanelHoverModel: ObservableObject {
     }
 
     func trackDrilldown(at point: CGPoint, from previous: CGPoint, now: TimeInterval) {
+        guard clickGate.permitsHover(at: NSEvent.mouseLocation) else { return }
         if let dismissed = dismissedTrigger {
             let frame = drilldownTargets[dismissed.id]?.frame ?? dismissed.frame
             if frame.contains(point) { return }
@@ -406,7 +451,7 @@ final class PanelHoverModel: ObservableObject {
         let heading = drilldownFrame.map { HoverIntent.isHeading(from: previous, to: point, toward: $0) } ?? false
         if let next = drilldownIntent.update(rowID: row, isHeadingToFlyout: heading, now: now),
            let target = drilldownTargets[next] {
-            openDrilldown(target.make())
+            openDrilldown(target.make(), fromHover: true)
         }
     }
 }
@@ -447,13 +492,6 @@ private struct PanelRoot: View {
         let backdrop = layout.backdropFrame(contentHeight: shown)
         DeckThemeRoot {
             ZStack(alignment: .topLeading) {
-                // Draw the feather in the window itself. A ScrollView background clips
-                // to the scroll column and loses the left and bottom of the blur.
-                if shown > 0 {
-                    PanelBackdrop(feather: layout.backdropFeather(contentHeight: shown))
-                        .frame(width: backdrop.width, height: backdrop.height)
-                        .position(x: backdrop.midX, y: backdrop.midY)
-                }
                 PanelColumn(layout: layout, manager: manager, hover: hover, store: store,
                             onOpenSettings: onOpenSettings, onOpenDetail: onOpenDetail, height: $panelHeight)
                 if let active = hover.active {
@@ -490,6 +528,13 @@ private struct PanelRoot: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(alignment: .topLeading) {
+                if shown > 0 {
+                    PanelBackdrop(feather: layout.backdropFeather(contentHeight: shown))
+                        .frame(width: backdrop.width, height: backdrop.height)
+                        .offset(x: backdrop.minX, y: backdrop.minY)
+                }
+            }
             .coordinateSpace(name: PanelGeometry.coordinateSpace)
             .modifier(MenuPanelPalette())
         }
@@ -557,7 +602,7 @@ private struct PanelColumn: View {
 }
 
 enum PanelTileLayout {
-    static let spacing: CGFloat = 15
+    static let spacing: CGFloat = 12
     static let compactHeight: CGFloat = 65
     static let compactWidth = (DeckTheme.panelWidth - spacing) / 2
 
@@ -673,6 +718,43 @@ struct PanelTileLabel: View {
     }
 }
 
+/// Keep the small on/off icon independent from the large details touch target.
+struct PanelSplitTile: View {
+    let title: String
+    let value: String
+    let symbol: String
+    let isActive: Bool
+    var isEnabled = true
+    let toggleHelp: String
+    let onToggle: () -> Void
+    let onDetails: () -> Void
+    @Environment(\.deckTheme) private var theme
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Button(action: onToggle) {
+                Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(isActive ? theme.accent : theme.roundGlyph)
+                    .frame(width: 36, height: 36)
+                    .background(isActive ? Color.white : theme.roundFill, in: Circle())
+                    .frame(width: 44, height: 50).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).disabled(!isEnabled).help(toggleHelp).accessibilityLabel(toggleHelp)
+            Button(action: onDetails) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(theme.primary)
+                    Text(value).font(.system(size: 11.5, weight: .medium)).foregroundStyle(theme.secondary)
+                }
+                .lineLimit(1).minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).accessibilityLabel(title + " · " + DeckL("显示详情", "Show details"))
+        }
+        .padding(.leading, 8).padding(.trailing, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
 private struct PanelUptimeRow: View {
     @ObservedObject var store: SystemStore
 
@@ -741,8 +823,15 @@ private struct PanelRow: View {
                     .environment(\.openPanelDetail, section.detail == nil ? nil : onOpenDetail)
             }
         }
+            .environment(\.openPanelDetail, section.detail == nil ? nil : onOpenDetail)
             .frame(maxWidth: compact ? PanelTileLayout.compactWidth : .infinity, alignment: .leading)
             .contentShape(shape)
+            .onTapGesture {
+                if section.detail != nil { onOpenDetail() }
+            }
+            .accessibilityAction(named: Text(DeckL("显示详情", "Show details"))) {
+                if section.detail != nil { onOpenDetail() }
+            }
             .deckPointerGlow(cornerRadius: radius)
             .background {
                 ZStack {
@@ -764,7 +853,7 @@ private struct PanelRow: View {
 }
 
 /// The floating cards beside the panel. Scrolls only when a screen cannot fit them.
-private struct FlyoutColumn<Content: View>: View {
+struct FlyoutColumn<Content: View>: View {
     let x: CGFloat
     let rowTop: CGFloat
     let windowHeight: CGFloat
@@ -786,6 +875,11 @@ private struct FlyoutColumn<Content: View>: View {
         .environment(\.deckUsesSharedSurface, true)
         .deckPointerGlow(insets: EdgeInsets(top: PanelGeometry.verticalPadding, leading: PanelGeometry.margin,
                                           bottom: PanelGeometry.verticalPadding, trailing: PanelGeometry.margin))
+        .mask {
+            RoundedRectangle(cornerRadius: DeckTheme.cardRadius, style: .continuous)
+                .padding(.horizontal, PanelGeometry.margin)
+                .padding(.vertical, PanelGeometry.verticalPadding)
+        }
         .background {
             MenuPanelSurface()
                 .padding(.horizontal, PanelGeometry.margin)
@@ -825,6 +919,9 @@ final class PanelController {
     private let onVisibilityChange: (Bool) -> Void
     private var clickMonitor: Any?
     private var keyMonitor: Any?
+    private var localClickMonitor: Any?
+    private var directTouchTap: DirectTouchTapTarget?
+    private var clickGate = PointerSelectionGate()
     private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private weak var anchorButton: NSStatusBarButton?
 
@@ -871,6 +968,7 @@ final class PanelController {
         hover.reset()
         store.processTransfers.show(nil)
         intent = HoverIntent()
+        clickGate.reset()
 
         let buttonWindow = button?.window
         let screen = buttonWindow?.screen ?? NSScreen.main
@@ -888,11 +986,16 @@ final class PanelController {
             store: store,
             onOpenSettings: onOpenSettings,
             onOpenDetail: { [weak self] id in
-                self?.intent.force(id)
-                self?.show(id)
+                self?.openDetailFromClick(id)
             }
         ))
         hosting.sizingOptions = []
+        directTouchTap = DirectTouchTapTarget(view: hosting) { [weak self] point in
+            guard let self else { return }
+            if let id = PanelGeometry.row(at: point, frames: self.hover.rowFrames) {
+                self.openDetailFromClick(id)
+            }
+        }
         panel.contentView = hosting
         panel.ignoresMouseEvents = false
         panel.makeKeyAndOrderFront(nil)
@@ -950,6 +1053,8 @@ final class PanelController {
             return
         }
 
+        guard clickGate.permitsHover(at: NSEvent.mouseLocation) else { return }
+
         let point = PanelGeometry.localPoint(NSEvent.mouseLocation, window: panel.frame)
         let now = ProcessInfo.processInfo.systemUptime
         let previous = trail?.point ?? point
@@ -960,8 +1065,8 @@ final class PanelController {
         let isOverFlyout = flyouts.contains { $0.contains(point) }
         let isOverPanel = hover.panelFrame.contains(point)
 
-        // The window spans the screen's height. Away from the cards it must not be there.
-        panel.ignoresMouseEvents = !isOverFlyout && !isOverPanel
+        // Keep touch/click input enabled even while the mouse is elsewhere.
+        // The local click monitor dismisses blank parts of this composite window.
 
         let rowID = !isOverFlyout && isOverPanel ? PanelGeometry.row(at: point, frames: hover.rowFrames) : nil
         let isHeading = flyouts.contains { flyout in
@@ -975,6 +1080,12 @@ final class PanelController {
         if trail == nil || now - (trail?.time ?? 0) > 0.1 {
             trail = (point, now)
         }
+    }
+
+    private func openDetailFromClick(_ id: String) {
+        clickGate.hold(at: NSEvent.mouseLocation)
+        intent.force(id)
+        show(id)
     }
 
     private func show(_ id: String) {
@@ -1007,6 +1118,13 @@ final class PanelController {
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             MainActor.assumeIsolated { self?.close() }
         }
+        localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self, event.window === self.panel else { return event }
+            let point = CGPoint(x: event.locationInWindow.x, y: self.panel.frame.height - event.locationInWindow.y)
+            let frames = [self.hover.panelFrame, self.hover.flyoutFrame, self.hover.drilldownFrame].compactMap { $0 }
+            if !frames.contains(where: { $0.contains(point) }) { self.close(); return nil }
+            return event
+        }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53, let self, event.window === self.panel { // Esc
                 MainActor.assumeIsolated {
@@ -1030,9 +1148,11 @@ final class PanelController {
     private func removeMonitors() {
         if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        if let localClickMonitor { NSEvent.removeMonitor(localClickMonitor) }
         for observer in observers { observer.center.removeObserver(observer.token) }
         clickMonitor = nil
         keyMonitor = nil
+        localClickMonitor = nil
         observers = []
     }
 }

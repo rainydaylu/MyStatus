@@ -138,6 +138,128 @@ struct PanelLayoutTests {
         #expect(alpha(55, 80) == alpha(404, 80))
     }
 
+    @MainActor
+    @Test func backdropCannotCreateALightBandOnBlackAndStaysSymmetricOnWhite() throws {
+        let suite = "PanelBackdropTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(1.0, forKey: PanelBackdropDepth.key)
+        defaults.set(1.0, forKey: PanelBackdropBlur.key)
+        for scheme in [ColorScheme.light, .dark] {
+            for background in [Color.black, .white] {
+                let view = PanelBackdrop(feather: .init(left: 94, right: 94, top: 28, bottom: 112))
+                    .frame(width: 400, height: 320)
+                    .environment(\.deckUsesGlass, true)
+                    .environment(\.colorScheme, scheme)
+                    .defaultAppStorage(defaults)
+                    .background(background)
+                let pixels = try rgba(view, width: 400, height: 320)
+                let neutral = stride(from: 0, to: pixels.count, by: 4).allSatisfy { index -> Bool in
+                    let red = pixels[index]
+                    let green = pixels[index + 1]
+                    let blue = pixels[index + 2]
+                    return red == green && red == blue
+                }
+                #expect(neutral)
+                if background == .black {
+                    #expect(stride(from: 0, to: pixels.count, by: 4).allSatisfy { pixels[$0] == 0 })
+                } else {
+                    let row = 160 * 400 * 4
+                    #expect(pixels[row + 200 * 4] < pixels[row + 2 * 4])
+                    #expect((0..<200).allSatisfy {
+                        abs(Int(pixels[row + $0 * 4]) - Int(pixels[row + (399 - $0) * 4])) <= 1
+                    })
+                }
+            }
+        }
+    }
+
+    @MainActor
+    @Test func cardShadowStaysOutsideItsSurfaceAndFallsOffEquallyOnBothSides() throws {
+        let surface = MenuPanelSurface(cornerRadius: 24)
+            .environment(\.deckUsesGlass, false)
+            .environment(\.deckGlassStrength, 1)
+            .environment(\.colorScheme, .light)
+            .frame(width: 300, height: 120)
+            .padding(24)
+        let white = try rgba(surface.background(Color.white), width: 348, height: 168)
+        let black = try rgba(surface.background(Color.black), width: 348, height: 168)
+        func value(_ pixels: [UInt8], _ x: Int, _ y: Int) -> UInt8 { pixels[(y * 348 + x) * 4] }
+        #expect(value(white, 20, 84) < value(white, 0, 84))
+        #expect(abs(Int(value(white, 20, 84)) - Int(value(white, 327, 84))) <= 1)
+        #expect(value(black, 20, 84) == 0)
+        #expect(value(black, 327, 84) == 0)
+        // Casting the shadow must not put a black fill underneath the translucent card.
+        #expect(value(black, 174, 84) > 75)
+    }
+
+    @MainActor
+    @Test func flyoutSelectionCannotPaintAcrossTheRoundedCorners() throws {
+        var measured: CGRect?
+        let flyout = FlyoutColumn(x: 12, rowTop: 6, windowHeight: 400, onFrame: { measured = $0 }) {
+            Color.blue.frame(width: 320, height: 120)
+        }
+        .environment(\.deckUsesGlass, false)
+        .environment(\.deckGlassStrength, 0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        let host = NSHostingView(rootView: flyout)
+        host.frame = CGRect(x: 0, y: 0, width: 344, height: 400)
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        host.layoutSubtreeIfNeeded()
+        let frame = try #require(measured)
+        #expect(frame == CGRect(x: 12, y: 6, width: 320, height: 120))
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let corner = try #require(bitmap.colorAt(x: 15, y: 9)?.usingColorSpace(.deviceRGB))
+        let center = try #require(bitmap.colorAt(x: 172, y: 66)?.usingColorSpace(.deviceRGB))
+        #expect(corner.blueComponent - corner.redComponent < 0.05)
+        #expect(center.blueComponent - center.redComponent > 0.5)
+    }
+
+    @MainActor
+    @Test func nativeGlassKeepsItsFrameAndHonorsTheBlurSlider() throws {
+        guard #available(macOS 26.0, *) else { return }
+        let suite = "PanelGlassTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(0.25, forKey: PanelBackdropBlur.key)
+        let surface = MenuPanelSurface(cornerRadius: 24)
+            .frame(width: 300, height: 120)
+            .padding(24)
+            .defaultAppStorage(defaults)
+            .environment(\.deckUsesGlass, true)
+            .environment(\.deckGlassStrength, 1)
+        let host = NSHostingView(rootView: surface)
+        host.frame = CGRect(x: 0, y: 0, width: 348, height: 168)
+        host.layoutSubtreeIfNeeded()
+        func glassViews(in view: NSView) -> [NSGlassEffectView] {
+            let children = view.subviews.flatMap { glassViews(in: $0) }
+            return (view as? NSGlassEffectView).map { [$0] + children } ?? children
+        }
+        let glasses = glassViews(in: host)
+        #expect(glasses.count == 1)
+        let glass = try #require(glasses.first)
+        #expect(glass.convert(glass.bounds, to: host) == CGRect(x: 24, y: 24, width: 300, height: 120))
+        #expect(glass.layer?.masksToBounds == true)
+        #expect(glass.alphaValue == 0.25)
+    }
+
+    @MainActor
+    private func rgba<Content: View>(_ view: Content, width: Int, height: Int) throws -> [UInt8] {
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 1
+        let image = try #require(renderer.cgImage)
+        #expect(image.width == width)
+        #expect(image.height == height)
+        let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                            bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let data = try #require(context.data)
+        return Array(UnsafeBufferPointer(start: data.assumingMemoryBound(to: UInt8.self), count: width * height * 4))
+    }
+
     @Test func backgroundDepthHasAnIndependentMidpointAndFullRange() {
         let midpoint = PanelBackdropDepth.intensity(at: PanelBackdropDepth.defaultValue)
         #expect(PanelBackdropDepth.defaultValue == 0.5)

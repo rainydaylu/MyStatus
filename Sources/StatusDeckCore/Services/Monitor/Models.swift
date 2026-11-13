@@ -4,9 +4,20 @@ import Foundation
 // Plain values produced by the sampler and read by the UI. Nothing here touches
 // a system API, so the formatting and maths around them stay easy to test.
 
-enum CoreKind: Sendable {
+enum CoreKind: Int, CaseIterable, Sendable {
     case efficiency
     case performance
+    case superCore
+    case unknown
+
+    var title: String {
+        switch self {
+        case .efficiency: DeckL("能效核心", "Efficiency cores")
+        case .performance: DeckL("性能核心", "Performance cores")
+        case .superCore: DeckL("超级核心", "Super cores")
+        case .unknown: DeckL("CPU 核心", "CPU cores")
+        }
+    }
 }
 
 struct CoreLoad: Identifiable, Equatable, Sendable {
@@ -27,6 +38,9 @@ struct CPUStats: Equatable, Sendable {
     var performanceCores: [CoreLoad] { cores.filter { $0.kind == .performance } }
     var efficiencyAverage: Double { Self.average(efficiencyCores) }
     var performanceAverage: Double { Self.average(performanceCores) }
+    var coreKinds: [CoreKind] { CoreKind.allCases.filter { kind in cores.contains { $0.kind == kind } } }
+    func cores(of kind: CoreKind) -> [CoreLoad] { cores.filter { $0.kind == kind } }
+    func average(of kind: CoreKind) -> Double { Self.average(cores(of: kind)) }
 
     private static func average(_ cores: [CoreLoad]) -> Double {
         cores.isEmpty ? 0 : cores.map(\.total).reduce(0, +) / Double(cores.count)
@@ -46,11 +60,21 @@ struct SoCStats: Equatable, Sendable {
     var cpuFrequencyMHz: Double?
     var efficiencyFrequencyMHz: Double?
     var performanceFrequencyMHz: Double?
+    var superFrequencyMHz: Double?
     var gpuFrequencyMHz: Double?
     var cpuWatts: Double?
     var gpuWatts: Double?
     var aneWatts: Double?
     var dramWatts: Double?
+
+    func frequency(for kind: CoreKind) -> Double? {
+        switch kind {
+        case .efficiency: efficiencyFrequencyMHz
+        case .performance: performanceFrequencyMHz
+        case .superCore: superFrequencyMHz
+        case .unknown: nil
+        }
+    }
 }
 
 struct MemoryStats: Equatable, Sendable {

@@ -182,6 +182,7 @@ enum TrioIconRenderer {
 // MARK: - Stats pill
 
 final class StatsPillPlugin: BuiltInPlugin {
+    static let id = "com.statusdeck.statspill"
     private let item = DeckMenuBarItem()
     private var cancellable: AnyCancellable?
     private let defaults = PluginDefaults(pluginID: "com.statusdeck.statspill")
@@ -189,7 +190,7 @@ final class StatsPillPlugin: BuiltInPlugin {
 
     init(services: SharedServices) {
         super.init(manifest: PluginManifest(
-            id: "com.statusdeck.statspill",
+            id: Self.id,
             name: "菜单栏读数",
             summary: "在菜单栏持续显示网络速度、CPU 和内存占用。",
             symbol: "gauge.with.dots.needle.33percent",

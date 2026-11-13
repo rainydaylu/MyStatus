@@ -8,6 +8,11 @@ public enum StatusDeckApp {
     public static func run() {
         let arguments = CommandLine.arguments
 
+        if arguments.contains("--diagnose-cpu") {
+            Diagnostics.runCPU()
+            return
+        }
+
         if arguments.contains("--diagnose-audio") {
             Diagnostics.runAudio(write: arguments.contains("--write"))
             return
@@ -138,6 +143,7 @@ final class HostController: DeckHost {
     }
 
     func start() {
+        if !isDryRun { DeckLoginItemController.shared.applyDefaultIfNeeded() }
         statusBar = StatusBarController(manager: manager, panel: panel) { [weak self] in
             self?.openSettings(pluginID: nil)
         }
@@ -352,6 +358,19 @@ final class SnapshotRenderer {
         let plugins = host.manager.entries.compactMap(\.plugin).sorted { $0.manifest.sortOrder < $1.manifest.sortOrder }
         let sections = plugins.flatMap(\.sections)
         for (scheme, label) in [(ColorScheme.dark, "dark"), (ColorScheme.light, "light")] {
+            if let clipboard = plugins.compactMap({ $0 as? ClipboardPlugin }).first {
+                render(clipboard.browserSnapshot.frame(width: 400, height: 850), scheme: scheme, name: "\(label)-clipboard-shelf")
+            }
+            var transfer = TransferHistory()
+            for index in 0..<60 {
+                let phase = Double(index)
+                transfer.append(120_000 + 108_000 * abs(sin(phase * 0.23)),
+                                3_500_000 + 3_600_000 * abs(cos(phase * 0.17)), at: phase)
+            }
+            render(TransferActivityCard(title: DeckL("网速历史", "Speed history"), firstLabel: DeckL("上传"),
+                                        secondLabel: DeckL("下载"), first: 228_000, second: 7_100_000,
+                                        history: transfer, floor: 64_000, expanded: true)
+                .padding(12).frame(width: DeckTheme.flyoutWidth + 24), scheme: scheme, name: "\(label)-transfer-scales")
             let rows = PanelTileGrid(sections: sections, store: host.services.store, hover: PanelHoverModel(),
                                      onOpenSettings: {}, onOpenDetail: { _ in })
             render(rows.padding(12).frame(width: DeckTheme.panelWidth + 24), scheme: scheme, name: "\(label)-panel")

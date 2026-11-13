@@ -30,7 +30,7 @@ Card translucency|Transparence des cartes|Kartentransparenz|カードの透明�
 Background depth|Profondeur de l’arrière-plan|Hintergrundtiefe|背景の深さ|배경 깊이
 Background blur|Flou de l’arrière-plan|Hintergrundunschärfe|背景のぼかし|배경 흐림
 Pointer glow|Halo du pointeur|Zeigerlicht|ポインタの光彩|포인터 빛 효과
-Background depth controls the gray tint. Background blur softens desktop details.|La profondeur règle la teinte grise. Le flou adoucit les détails du bureau.|Die Hintergrundtiefe regelt die graue Tönung. Die Hintergrundunschärfe zeichnet Desktopdetails weich.|背景の深さはグレーの色合いを調整します。背景のぼかしでデスクトップの細部をやわらげます。|배경 깊이는 회색 농도를 조절합니다. 배경 흐림은 데스크탑의 세부를 부드럽게 표시합니다.
+Background depth controls the outer shade. Background blur controls the glass effect inside cards.|La profondeur règle l’ombre extérieure. Le flou règle l’effet de verre à l’intérieur des cartes.|Die Hintergrundtiefe regelt den äußeren Schatten. Die Hintergrundunschärfe regelt den Glaseffekt innerhalb der Karten.|背景の深さは外側の陰影を調整します。背景のぼかしはカード内のガラス効果を調整します。|배경 깊이는 바깥쪽 음영을 조절합니다. 배경 흐림은 카드 내부의 유리 효과를 조절합니다.
 Background translucency|Transparence de l’arrière-plan|Hintergrundtransparenz|背景の透明度|배경 투명도
 Light intensity|Intensité lumineuse|Lichtintensität|光の強さ|빛 강도
 Live material preview|Aperçu en direct|Live-Vorschau|リアルタイムプレビュー|실시간 미리보기

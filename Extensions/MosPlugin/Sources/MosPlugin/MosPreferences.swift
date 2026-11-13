@@ -31,16 +31,16 @@ enum MosModifier: String, CaseIterable, Codable, Identifiable {
 }
 
 struct MosScrollOptions: Codable, Equatable {
-    var smooth = true
-    var reverse = false
+    var smooth = false
+    var reverse = true
     var reverseVertical = true
     var reverseHorizontal = false
     var boostKey: MosModifier = .none
     var horizontalKey: MosModifier = .none
     var bypassKey: MosModifier = .command
-    var minimumStep = 2.0
-    var speed = 0.25
-    var duration = 0.1
+    var minimumStep = 23.0
+    var speed = 1.45
+    var duration = 0.50
 
     static let stepRange = 1.0...120.0
     static let speedRange = 0.25...4.0
@@ -95,7 +95,9 @@ final class MosPreferences: ObservableObject {
         let presets = MosScrollOptions()
         if let data = defaults.data("scrollOptions"), var saved = try? decoder.decode(MosScrollOptions.self, from: data) {
             // Earlier builds saved the entire profile even when only a switch changed.
-            if saved.minimumStep == 12, saved.speed == 1, saved.duration == 0.32 {
+            let originalPreset = saved.minimumStep == 12 && saved.speed == 1 && saved.duration == 0.32
+            let priorPreset = saved.minimumStep == 2 && saved.speed == 0.25 && saved.duration == 0.1
+            if originalPreset || priorPreset {
                 saved.minimumStep = presets.minimumStep
                 saved.speed = presets.speed
                 saved.duration = presets.duration
@@ -103,10 +105,10 @@ final class MosPreferences: ObservableObject {
             }
             options = saved
         } else {
-            let vertical = defaults.bool("reverseVertical", default: false)
             let horizontal = defaults.bool("reverseHorizontal", default: false)
+            let vertical = defaults.bool("reverseVertical", default: horizontal ? false : presets.reverseVertical)
             options = MosScrollOptions(
-                smooth: defaults.bool("smooth", default: true), reverse: vertical || horizontal,
+                smooth: defaults.bool("smooth", default: presets.smooth), reverse: vertical || horizontal,
                 reverseVertical: vertical || !horizontal, reverseHorizontal: horizontal,
                 speed: defaults.double("speed", default: presets.speed), duration: defaults.double("duration", default: presets.duration)
             )

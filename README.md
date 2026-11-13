@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <em>Source v1.0.6 · Apple silicon Macs (M1 or newer) · macOS 13 or later</em>
+  <em>v1.2.4 · Apple silicon Macs (M1 or newer) · macOS 13 or later</em>
   <br>
   <a href="README.zh-CN.md">简体中文</a>
 </p>
@@ -37,11 +37,23 @@
 
 ---
 
+## What is new in 1.2.4
+
+- Detects efficiency, performance, and super CPU cores dynamically, including Macs without an efficiency cluster.
+- Cards support hover and click previews, with direct touch input. The main menu card spacing is 20% smaller.
+- Clipboard history supports colored tags and previews for images, rich text, HTML, tables, files, links, code, and colors. Hover or click to preview, double-click to copy once and close, or press Esc to close both panes. The context menu includes **Copy plain text**.
+- Clipboard panes use the main menu material. The preview occupies 30% less area; a measured viewport fixes missing hover previews.
+- Upload/download and disk read/write charts show independent vertical scales.
+- **Launch at login** is available and enabled by default. Saved preferences are preserved.
+- Mos defaults to reversal on and smoothing off. Advanced defaults are **23 px / 1.45 / 0.50**, and sliders no longer draw tick marks. Custom profiles and app exceptions are preserved.
+
+Validation: **219 app tests and 6 Mos tests passed**. Native window tests exercise the rendered clipboard list, hover/click priority, double-click copying, and Esc dismissal.
+
 ## Getting started
 
 1. **Download and unzip.** Choose the MyStatus ZIP under **Assets** on the latest release page, then double-click it in Finder.
 2. **Move the app to Applications.** Drag **MyStatus.app** into the **Applications** folder and open it.
-3. **Open the panel.** Click the MyStatus status icon in the menu bar at the top of your screen. Move your pointer over a card to see more detail.
+3. **Open the panel.** Click the MyStatus status icon in the menu bar at the top of your screen. Hover over or click a card to see more detail, including with direct touch input.
 
 Start with **Memory**, **Displays**, or **Sound**. The main panel shows the readings and controls you’re likely to use most. The detail pane gives you more room for charts, device choices, and settings. Click **Edit Controls** at the bottom of the panel to change which cards are shown.
 
@@ -82,7 +94,7 @@ The **Displays** and **Sound** sliders are available directly in the panel. Use 
 
 ## Find something you copied
 
-Press <kbd>Control</kbd> + <kbd>Option</kbd> + <kbd>V</kbd> to open clipboard history. Search for text you copied, filter by type or source app, or pin something you use often. Select an item and press <kbd>Return</kbd> to reuse it. If MyStatus copies the item to the clipboard, press <kbd>Command</kbd> + <kbd>V</kbd> where you want it to go.
+Press <kbd>Shift</kbd> + <kbd>Command</kbd> + <kbd>V</kbd> to open clipboard history. Search, filter by type or source app, pin entries, or organize them with colored tags. Hover over or click an entry to open its preview. Double-click to copy the original content once and close the clipboard; press <kbd>Esc</kbd> to close both panes. Use **Copy plain text** in the context menu to remove formatting. Select an entry and press <kbd>Return</kbd> to reuse it; if it is copied rather than pasted, press <kbd>Command</kbd> + <kbd>V</kbd> in the target app.
 
 <p align="center">
   <img src="docs/images/mystatus-clipboard-history.jpg" width="428" alt="MyStatus clipboard preview with sample file, note, link, color, and code entries">

@@ -15,8 +15,35 @@ struct ScrollTests {
                              wheelCount: 2, wheel1: 1, wheel2: 0, wheel3: 0))
     }
 
+    @Test func freshInstallReversesWithoutSmoothingAndPreservesExplicitChoices() throws {
+        let store = testDefaults()
+        let preferences = MosPreferences(store: store)
+        #expect(!preferences.options.smooth)
+        #expect(preferences.options.reverseY)
+        #expect(preferences.options.minimumStep == 23)
+        #expect(preferences.options.speed == 1.45)
+        #expect(preferences.options.duration == 0.50)
+        let engine = MosEngine(preferences: preferences)
+        defer { engine.stop() }
+        let event = try wheel()
+        _ = engine.receive(.scrollWheel, event, canPost: { true })
+        #expect(event.getIntegerValueField(.scrollWheelEventDeltaAxis1) == -1)
+        #expect(event.getIntegerValueField(.scrollWheelEventIsContinuous) == 0)
+        preferences.options.smooth = true
+        preferences.options.reverse = false
+        let restored = MosPreferences(store: store)
+        #expect(restored.options.smooth)
+        #expect(!restored.options.reverse)
+    }
+
     @Test func fractionalGainUsesMosPointDeltaAndLegacyDurationCurve() throws {
         let preferences = MosPreferences(store: testDefaults())
+        // Exercise fractional gain independently of the user's new presets.
+        preferences.options.minimumStep = 2
+        preferences.options.speed = 0.25
+        preferences.options.duration = 0.1
+        preferences.options.smooth = true
+        preferences.options.reverse = false
         #expect(preferences.options.minimumStep == 2)
         #expect(preferences.options.speed == 0.25)
         #expect(preferences.options.duration == 0.1)
@@ -34,6 +61,10 @@ struct ScrollTests {
 
     @Test func smallDeltasAccumulateWithoutInflatingGain() throws {
         let preferences = MosPreferences(store: testDefaults())
+        preferences.options.minimumStep = 2
+        preferences.options.speed = 0.25
+        preferences.options.smooth = true
+        preferences.options.reverse = false
         preferences.options.duration = 0
         let engine = MosEngine(preferences: preferences)
         defer { engine.stop() }
@@ -59,6 +90,9 @@ struct ScrollTests {
         defaults.set(try JSONEncoder().encode(old), forKey: "scrollOptions")
         let migrated = MosPreferences(store: store)
         #expect(migrated.options == MosScrollOptions(reverse: true))
+        let prior = MosScrollOptions(smooth: true, reverse: false, minimumStep: 2, speed: 0.25, duration: 0.1)
+        defaults.set(try JSONEncoder().encode(prior), forKey: "scrollOptions")
+        #expect(MosPreferences(store: store).options == MosScrollOptions(smooth: true, reverse: false))
 
         let custom = MosScrollOptions(reverse: true, minimumStep: 12, speed: 0.5, duration: 0.32)
         defaults.set(try JSONEncoder().encode(custom), forKey: "scrollOptions")

@@ -244,7 +244,7 @@ final class MosEngine: ObservableObject {
 
 @MainActor
 final class MosPlugin: DeckPlugin {
-    let manifest = PluginManifest(id: "com.statusdeck.mos", name: "Mos 平滑滚动", summary: "插件 3 · 鼠标滚轮平滑、方向与应用例外", symbol: "computermouse", version: "1.2", category: .tools, enabledByDefault: false, sortOrder: 397)
+    let manifest = PluginManifest(id: "com.statusdeck.mos", name: "Mos 平滑滚动", summary: "插件 3 · 鼠标滚轮平滑、方向与应用例外", symbol: "computermouse", version: "1.2.1", category: .tools, enabledByDefault: false, sortOrder: 397)
     let engine = MosEngine()
     private weak var host: (any DeckHost)?
     private lazy var icon = DeckMenuBarItem(image: NSImage(systemSymbolName: "computermouse", accessibilityDescription: "Mos"))

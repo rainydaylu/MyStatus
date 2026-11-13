@@ -1,0 +1,40 @@
+name: Publish release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "dist/MyStatus-*.zip"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mystatus-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish the verified app and source archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python3 -c 'import plistlib; print(plistlib.load(open("Support/Info.plist", "rb"))["CFBundleShortVersionString"])')"
+          tag="v$version"
+          app="dist/MyStatus-$version.zip"
+          source="$RUNNER_TEMP/MyStatus-$version-source.zip"
+          test -f "$app"
+          unzip -t "$app"
+          git archive --format=zip --prefix="MyStatus-$version-source/" --output="$source" HEAD -- . ':(exclude)dist'
+          if gh release view "$tag" --json isDraft > "$RUNNER_TEMP/release.json" 2>/dev/null; then
+            python3 -c 'import json, sys; sys.exit(0 if json.load(open(sys.argv[1]))["isDraft"] else "Release already published")' "$RUNNER_TEMP/release.json"
+          else
+            gh release create "$tag" --draft --target "$GITHUB_SHA" --title "MyStatus $version" --notes-file .github/release-notes.md
+          fi
+          gh release upload "$tag" "$app" "$source" --clobber
+          gh release edit "$tag" --draft=false --latest

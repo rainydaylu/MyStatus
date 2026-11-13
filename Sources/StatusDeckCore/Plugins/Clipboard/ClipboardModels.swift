@@ -5,7 +5,7 @@ import ImageIO
 import UniformTypeIdentifiers
 
 enum ClipKind: String, CaseIterable, Sendable {
-    case text, code, link, color, image, file
+    case text, code, link, color, image, file, richText, table
 
     var symbol: String {
         switch self {
@@ -15,12 +15,24 @@ enum ClipKind: String, CaseIterable, Sendable {
         case .color: "paintpalette.fill"
         case .image: "photo"
         case .file: "doc.fill"
+        case .richText: "doc.richtext"
+        case .table: "tablecells"
         }
     }
 }
 
+enum ClipboardTagColor: String, CaseIterable, Sendable {
+    case orange, green, red, blue, purple
+}
+
+struct ClipboardTag: Identifiable, Equatable, Sendable {
+    let id: Int64
+    let name: String
+    let color: ClipboardTagColor
+}
+
 enum ClipFilter: String, CaseIterable, Sendable {
-    case all, text, link, image, file, code, color, pinned
+    case all, text, richText, table, link, image, file, code, color, pinned
 
     var title: String {
         switch self {
@@ -32,6 +44,8 @@ enum ClipFilter: String, CaseIterable, Sendable {
         case .code: DeckL("代码")
         case .color: DeckL("颜色")
         case .pinned: DeckL("置顶")
+        case .richText: DeckL("富文本", "Rich text")
+        case .table: DeckL("表格", "Table")
         }
     }
 
@@ -39,7 +53,9 @@ enum ClipFilter: String, CaseIterable, Sendable {
     var kinds: [ClipKind]? {
         switch self {
         case .all, .pinned: nil
-        case .text: [.text]
+        case .text: [.text, .richText]
+        case .richText: [.richText]
+        case .table: [.table]
         case .code: [.code]
         case .color: [.color]
         case .link: [.link]
@@ -61,6 +77,8 @@ struct ClipboardItem: Identifiable, Equatable, Sendable {
     let isPinned: Bool
     let byteCount: Int
     let thumbnail: Data?
+    var tagIDs: [Int64] = []
+    var hasRichText = false
 
     var displayPreview: String {
         if kind == .image {
@@ -217,7 +235,17 @@ struct ClipboardPayload: Equatable, Sendable {
         }
         func flavors(of type: String) -> [ClipRepresentation] { all.filter { $0.type == type } }
 
-        let plainText = flavors(of: PasteboardType.plainText).first.flatMap { String(data: $0.data, encoding: .utf8) }
+        let plain = ClipboardText.types.lazy.compactMap { flavors(of: $0).first }.first { representation in
+            ClipboardText.decode(representation.data)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        }
+        let rich = ClipboardText.richTypes.lazy.compactMap { flavors(of: $0).first }.first
+        let plainText = plain.flatMap { ClipboardText.decode($0.data) }
+        let contentText = plainText ?? rich.flatMap { representation -> String? in
+            guard representation.data.count <= 8 * 1024 * 1024 else { return nil }
+            return representation.type == PasteboardType.html
+                ? ClipboardText.decode(representation.data).map(ClipboardText.htmlText)
+                : ClipboardText.attributed(representation)?.string
+        }
         let fileURLs = flavors(of: PasteboardType.fileURL)
             .compactMap { String(data: $0.data, encoding: .utf8).flatMap(URL.init(string:)) }
             .filter(\.isFileURL)
@@ -233,17 +261,22 @@ struct ClipboardPayload: Equatable, Sendable {
             text = fileURLs.map(\.path).joined(separator: "\n")
             preview = fileURLs.count == 1 ? fileURLs[0].lastPathComponent : "\(fileURLs[0].lastPathComponent) 等 \(fileURLs.count) 个文件"
             essential = flavors(of: PasteboardType.fileURL)
-        } else if let plainText, !plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        } else if let plainText = contentText, !plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             text = plainText
             preview = ClipboardClassifier.preview(of: plainText)
-            if ClipboardClassifier.isLink(plainText) {
+            let htmlTable = flavors(of: PasteboardType.html).first.flatMap { ClipboardText.decode($0.data) }.flatMap(ClipboardTable.html)
+            if htmlTable != nil || ClipboardTable.detect(text: plainText,
+                explicitCSV: all.contains { $0.type == "public.comma-separated-values-text" },
+                explicitTSV: all.contains { $0.type == "public.tab-separated-values-text" }) != nil {
+                kind = .table
+            } else if ClipboardClassifier.isLink(plainText) {
                 kind = .link
             } else if ClipboardClassifier.color(from: plainText) != nil {
                 kind = .color
             } else {
-                kind = ClipboardClassifier.looksLikeCode(plainText) ? .code : .text
+                kind = ClipboardClassifier.looksLikeCode(plainText) ? .code : rich != nil ? .richText : .text
             }
-            essential = flavors(of: PasteboardType.plainText)
+            essential = plain.map { flavors(of: $0.type) } ?? rich.map { flavors(of: $0.type) } ?? []
         } else if let image {
             kind = .image
             text = nil

@@ -96,8 +96,38 @@ private struct CoreRings: View {
         // Ten fit on a line. Machines with more cores simply wrap.
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 22, maximum: 30), spacing: 3)], spacing: 5) {
             ForEach(cores) { core in
-                DeckRing(value: core.total, color: core.kind == .efficiency ? theme.magenta : theme.accent, lineWidth: 3.5)
+                DeckRing(value: core.total, color: core.kind.color(in: theme), lineWidth: 3.5)
                     .frame(width: 22, height: 22)
+                    .help("\(core.kind.title) \(core.id + 1) · \(Format.percent(core.total))")
+            }
+        }
+    }
+}
+
+private extension CoreKind {
+    func color(in theme: DeckTheme) -> Color {
+        switch self {
+        case .efficiency: theme.magenta
+        case .performance: theme.accent
+        case .superCore: .orange
+        case .unknown: theme.secondary
+        }
+    }
+}
+
+private struct CoreLegends: View {
+    let cpu: CPUStats
+    var soc: SoCStats? = nil
+    @Environment(\.deckTheme) private var theme
+
+    var body: some View {
+        VStack(spacing: 3) {
+            ForEach(cpu.coreKinds, id: \.self) { kind in
+                let count = cpu.cores(of: kind).count
+                let load = Format.percent(cpu.average(of: kind))
+                DeckLegendDot("\(kind.title) × \(count)",
+                              soc.map { "\(load) · \(Format.gigahertz($0.frequency(for: kind)))" } ?? load,
+                              color: kind.color(in: theme))
             }
         }
     }
@@ -120,12 +150,7 @@ private struct CPURow: View {
             }
             CoreRings(cores: cpu.cores)
                 .padding(.top, 3)
-            VStack(spacing: 3) {
-                if !cpu.efficiencyCores.isEmpty {
-                    DeckLegendDot(DeckL("能效核心"), Format.percent(cpu.efficiencyAverage), color: theme.magenta)
-                }
-                DeckLegendDot(DeckL("性能核心"), Format.percent(cpu.performanceAverage), color: theme.accent)
-            }
+            CoreLegends(cpu: cpu)
         }
     }
 }
@@ -154,12 +179,7 @@ private struct CPUDetail: View {
             DeckCard {
                 VStack(alignment: .leading, spacing: 7) {
                     CoreRings(cores: cpu.cores)
-                    VStack(spacing: 3) {
-                        if !cpu.efficiencyCores.isEmpty {
-                            DeckLegendDot(DeckL("能效核心"), "\(Format.percent(cpu.efficiencyAverage)) · \(Format.gigahertz(snapshot.soc.efficiencyFrequencyMHz))", color: theme.magenta)
-                        }
-                        DeckLegendDot(DeckL("性能核心"), "\(Format.percent(cpu.performanceAverage)) · \(Format.gigahertz(snapshot.soc.performanceFrequencyMHz))", color: theme.accent)
-                    }
+                    CoreLegends(cpu: cpu, soc: snapshot.soc)
                     DeckInfoRow(DeckL("功耗"), Format.watts(snapshot.soc.cpuWatts))
                 }
             }
@@ -744,6 +764,7 @@ private struct SensorsDetail: View {
             readings(DeckL("电压"), current: snapshot.battery, source: \.battery,
                      fields: [("battery.volts", DeckL("电池"), \.volts)], format: { sensorNumber($0, unit: "V") })
             readings(DeckL("频率", "Frequency"), current: snapshot.soc, source: \.soc, fields: [
+                ("frequency.super", DeckL("超级核心", "Super cores"), \.superFrequencyMHz),
                 ("frequency.performance", DeckL("性能核心"), \.performanceFrequencyMHz),
                 ("frequency.efficiency", DeckL("能效核心"), \.efficiencyFrequencyMHz),
                 ("frequency.gpu", "GPU", \.gpuFrequencyMHz)
@@ -842,22 +863,16 @@ final class BatteryPlugin: BuiltInPlugin {
 private struct BatteryRow: View {
     @ObservedObject var store: SystemStore
     @ObservedObject var power: PowerController
+    @Environment(\.openPanelDetail) private var openDetails
 
     var body: some View {
         let battery = store.snapshot.battery
-        Button {
-            power.setLowPowerMode(!ProcessInfo.processInfo.isLowPowerModeEnabled) { store.sampler.refreshBattery() }
-        } label: {
-            PanelTileLabel(title: DeckL("电池"), value: "\(battery.percent)% · \(battery.statusText)",
+        PanelSplitTile(title: DeckL("电池"), value: "\(battery.percent)% · \(battery.statusText)",
                            symbol: battery.isCharging ? "battery.100percent.bolt" : "battery.75percent",
-                           isActive: battery.isCharging || battery.isLowPowerMode)
-                .padding(.horizontal, 12)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(power.isApplying)
-        .help(battery.isLowPowerMode ? DeckL("关闭低电量模式", "Turn Low Power Mode off") : DeckL("开启低电量模式", "Turn Low Power Mode on"))
+                       isActive: battery.isCharging || battery.isLowPowerMode, isEnabled: !power.isApplying,
+                       toggleHelp: battery.isLowPowerMode ? DeckL("关闭低电量模式", "Turn Low Power Mode off") : DeckL("开启低电量模式", "Turn Low Power Mode on"),
+                       onToggle: { power.setLowPowerMode(!ProcessInfo.processInfo.isLowPowerModeEnabled) { store.sampler.refreshBattery() } },
+                       onDetails: { openDetails?() })
     }
 }
 

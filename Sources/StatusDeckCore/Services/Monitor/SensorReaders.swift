@@ -280,6 +280,7 @@ final class IOReportReader {
         var stats = SoCStats()
         var efficiency = FrequencyAccumulator()
         var performance = FrequencyAccumulator()
+        var superCores = FrequencyAccumulator()
         var graphics = FrequencyAccumulator()
 
         for entry in entries {
@@ -300,6 +301,10 @@ final class IOReportReader {
             if groupName == "CPU Stats" {
                 if name.hasPrefix("ECPU") {
                     efficiency.add(residencies: residencies, table: tables.efficiency, tableIncludesIdle: false)
+                } else if name.hasPrefix("MCPU") {
+                    performance.add(residencies: residencies, table: tables.performance, tableIncludesIdle: false)
+                } else if name.hasPrefix("PCPU"), !tables.superCores.isEmpty {
+                    superCores.add(residencies: residencies, table: tables.superCores, tableIncludesIdle: false)
                 } else if name.contains("CPU") {
                     performance.add(residencies: residencies, table: tables.performance, tableIncludesIdle: false)
                 }
@@ -309,8 +314,9 @@ final class IOReportReader {
         }
         stats.efficiencyFrequencyMHz = efficiency.averageMHz
         stats.performanceFrequencyMHz = performance.averageMHz
+        stats.superFrequencyMHz = superCores.averageMHz
         stats.gpuFrequencyMHz = graphics.averageMHz
-        stats.cpuFrequencyMHz = (efficiency + performance).averageMHz
+        stats.cpuFrequencyMHz = (efficiency + performance + superCores).averageMHz
         return stats
     }
 
@@ -356,6 +362,7 @@ struct FrequencyAccumulator {
 struct DVFSTables {
     var efficiency: [Double] = []
     var performance: [Double] = []
+    var superCores: [Double] = []
     var graphics: [Double] = []
 
     static func read() -> DVFSTables {
@@ -366,6 +373,7 @@ struct DVFSTables {
         defer { IOObjectRelease(iterator) }
 
         var tables = DVFSTables()
+        let clusterKinds = CPUReader.readClusterKinds()
         while case let entry = IOIteratorNext(iterator), entry != 0 {
             defer { IOObjectRelease(entry) }
             func table(_ key: String) -> [Double] {
@@ -373,11 +381,32 @@ struct DVFSTables {
                     .takeRetainedValue() as? Data else { return [] }
                 return megahertz(fromVoltageStates: data)
             }
-            if tables.efficiency.isEmpty { tables.efficiency = table("voltage-states1-sram") }
-            if tables.performance.isEmpty { tables.performance = table("voltage-states5-sram") }
+            let clusters = IORegistryEntryCreateCFProperty(entry, "acc-clusters" as CFString, kCFAllocatorDefault, 0)?
+                .takeRetainedValue() as? Data ?? Data()
+            let keys = cpuTableKeys(accClusters: clusters, clusterKinds: clusterKinds)
+            let hasSuper = clusterKinds.values.contains(.superCore)
+            if hasSuper {
+                if tables.superCores.isEmpty { tables.superCores = table(keys[.superCore] ?? "voltage-states5-sram") }
+                if tables.performance.isEmpty, let key = keys[.performance] { tables.performance = table(key) }
+            } else if tables.performance.isEmpty {
+                tables.performance = table(keys[.performance] ?? "voltage-states5-sram")
+            }
+            if tables.efficiency.isEmpty { tables.efficiency = table(keys[.efficiency] ?? "voltage-states1-sram") }
             if tables.graphics.isEmpty { tables.graphics = table("voltage-states9") }
         }
         return tables
+    }
+
+    /// Each 8-byte record maps a voltage domain to a logical CPU cluster.
+    static func cpuTableKeys(accClusters: Data, clusterKinds: [Int: CoreKind]) -> [CoreKind: String] {
+        let bytes = Array(accClusters)
+        var keys: [CoreKind: String] = [:]
+        guard bytes.count >= 8 else { return keys }
+        for offset in stride(from: 0, through: bytes.count - 8, by: 8) {
+            guard let kind = clusterKinds[Int(bytes[offset + 1])], kind != .unknown else { continue }
+            if keys[kind] == nil { keys[kind] = "voltage-states\(bytes[offset])-sram" }
+        }
+        return keys
     }
 
     /// Each entry is a little-endian `(frequency: UInt32, voltage: UInt32)`.

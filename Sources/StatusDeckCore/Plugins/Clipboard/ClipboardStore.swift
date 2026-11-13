@@ -57,6 +57,9 @@ final class ClipboardStore {
             """)
         try execute("CREATE INDEX IF NOT EXISTS items_order ON items(pinned DESC, created_at DESC)")
         try execute("CREATE INDEX IF NOT EXISTS reps_item ON reps(item_id)")
+        try execute("CREATE TABLE IF NOT EXISTS tags(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE COLLATE NOCASE, color TEXT NOT NULL)")
+        try execute("CREATE TABLE IF NOT EXISTS item_tags(item_id INTEGER NOT NULL, tag_id INTEGER NOT NULL, PRIMARY KEY(item_id, tag_id))")
+        try execute("CREATE INDEX IF NOT EXISTS item_tags_tag ON item_tags(tag_id)")
     }
 
     deinit {
@@ -82,11 +85,26 @@ final class ClipboardStore {
     func insert(_ payload: ClipboardPayload, sourceBundleID: String?, sourceName: String?, now: Date = Date()) -> (id: Int64, isNew: Bool)? {
         queue.sync {
             if let existing = rowID(forHash: payload.hash) {
-                update(
-                    "UPDATE items SET created_at=?, source_bundle=?, source_name=? WHERE id=?",
-                    [.double(now.timeIntervalSince1970), .text(sourceBundleID), .text(sourceName), .int(existing)]
-                )
-                return (existing, false)
+                // A duplicate keeps its identity/tags, but must restore the latest
+                // copied formats rather than stale plain text from an earlier copy.
+                do {
+                  try execute("BEGIN IMMEDIATE")
+                  let oldFiles = try removeRepresentations(of: existing)
+                  for (position, representation) in payload.representations.enumerated() {
+                    guard store(representation, of: existing, at: position) else { throw StoreError.sql("Cannot update clipboard formats") }
+                  }
+                  guard write(
+                    "UPDATE items SET created_at=?, source_bundle=?, source_name=?, kind=?, text=?, preview=?, bytes=?, thumbnail=? WHERE id=?",
+                    [.double(now.timeIntervalSince1970), .text(sourceBundleID), .text(sourceName), .text(payload.kind.rawValue),
+                     .text(payload.text), .text(payload.preview), .int(Int64(payload.byteCount)), .blob(payload.thumbnail), .int(existing)]
+                  ) else { throw StoreError.sql("Cannot update clipboard record") }
+                  try execute("COMMIT")
+                  for name in oldFiles { try? FileManager.default.removeItem(at: blobDirectory.appendingPathComponent(name)) }
+                  return (existing, false)
+                } catch {
+                  try? execute("ROLLBACK")
+                  return nil
+                }
             }
             guard let statement = prepare("""
                 INSERT INTO items(hash, kind, text, preview, source_bundle, source_name, created_at, bytes, thumbnail)
@@ -107,7 +125,20 @@ final class ClipboardStore {
         }
     }
 
-    private func store(_ representation: ClipRepresentation, of id: Int64, at position: Int) {
+    private func removeRepresentations(of id: Int64) throws -> [String] {
+        var files: [String] = []
+        if let statement = prepare("SELECT file FROM reps WHERE item_id=? AND file IS NOT NULL") {
+            bind(statement, [.int(id)])
+            while sqlite3_step(statement) == SQLITE_ROW {
+                if let name = text(statement, 0) { files.append(name) }
+            }
+            sqlite3_finalize(statement)
+        }
+        guard write("DELETE FROM reps WHERE item_id=?", [.int(id)]) else { throw StoreError.sql("Cannot replace clipboard formats") }
+        return files
+    }
+
+    @discardableResult private func store(_ representation: ClipRepresentation, of id: Int64, at position: Int) -> Bool {
         var inline: Data? = representation.data
         var fileName: String?
         if representation.data.count > Self.inlineLimit {
@@ -119,7 +150,7 @@ final class ClipboardStore {
                 fileName = name
             }
         }
-        update(
+        return write(
             "INSERT INTO reps(item_id, position, item_index, type, data, file) VALUES(?,?,?,?,?,?)",
             [.int(id), .int(Int64(position)), .int(Int64(representation.itemIndex)), .text(representation.type), .blob(inline), .text(fileName)]
         )
@@ -168,12 +199,13 @@ final class ClipboardStore {
             sqlite3_finalize(statement)
         }
         update("DELETE FROM reps WHERE item_id IN (SELECT id FROM items WHERE \(condition))", values)
+        update("DELETE FROM item_tags WHERE item_id IN (SELECT id FROM items WHERE \(condition))", values)
         update("DELETE FROM items WHERE \(condition)", values)
     }
 
     // MARK: - Reading
 
-    func fetch(query: String = "", filter: ClipFilter = .all, source: String? = nil, limit: Int = 200) -> [ClipboardItem] {
+    func fetch(query: String = "", filter: ClipFilter = .all, source: String? = nil, tagID: Int64? = nil, limit: Int = 200) -> [ClipboardItem] {
         queue.sync {
             var clauses: [String] = []
             var values: [Value] = []
@@ -192,13 +224,23 @@ final class ClipboardStore {
                 values.append(.text(source))
             }
             if filter == .pinned { clauses.append("pinned=1") }
-            if let kinds = filter.kinds {
+            if let tagID {
+                clauses.append("id IN (SELECT item_id FROM item_tags WHERE tag_id=?)")
+                values.append(.int(tagID))
+            }
+            if filter == .richText {
+                clauses.append("(kind='richText' OR EXISTS(SELECT 1 FROM reps WHERE item_id=items.id AND type IN ('public.rtf','public.html','com.apple.flat-rtfd')))")
+            } else if filter == .table {
+                clauses.append("(kind='table' OR (instr(text,char(9))>0 AND instr(text,char(10))>0))")
+            } else if let kinds = filter.kinds {
                 clauses.append("kind IN (\(kinds.map { _ in "?" }.joined(separator: ",")))")
                 values += kinds.map { .text($0.rawValue) }
             }
             let whereClause = clauses.isEmpty ? "" : "WHERE " + clauses.joined(separator: " AND ")
             let sql = """
-                SELECT id, kind, text, preview, source_bundle, source_name, created_at, pinned, bytes, thumbnail
+                SELECT id, kind, text, preview, source_bundle, source_name, created_at, pinned, bytes, thumbnail,
+                       (SELECT group_concat(tag_id) FROM item_tags WHERE item_id=items.id),
+                       EXISTS(SELECT 1 FROM reps WHERE item_id=items.id AND type='public.rtf')
                 FROM items \(whereClause) ORDER BY pinned DESC, created_at DESC LIMIT ?
                 """
             values.append(.int(Int64(limit)))
@@ -218,10 +260,55 @@ final class ClipboardStore {
                     createdAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 6)),
                     isPinned: sqlite3_column_int(statement, 7) != 0,
                     byteCount: Int(sqlite3_column_int64(statement, 8)),
-                    thumbnail: blob(statement, 9)
+                    thumbnail: blob(statement, 9),
+                    tagIDs: (text(statement, 10) ?? "").split(separator: ",").compactMap { Int64($0) },
+                    hasRichText: sqlite3_column_int(statement, 11) != 0
                 ))
             }
             return items
+        }
+    }
+
+    func tags() -> [ClipboardTag] {
+        queue.sync {
+            guard let statement = prepare("SELECT id, name, color FROM tags ORDER BY id") else { return [] }
+            defer { sqlite3_finalize(statement) }
+            var result: [ClipboardTag] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                result.append(ClipboardTag(id: sqlite3_column_int64(statement, 0), name: text(statement, 1) ?? "",
+                                           color: ClipboardTagColor(rawValue: text(statement, 2) ?? "") ?? .blue))
+            }
+            return result
+        }
+    }
+
+    func addTag(name: String, color: ClipboardTagColor) -> Int64? {
+        let name = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
+        guard !name.isEmpty else { return nil }
+        return queue.sync {
+            update("INSERT OR IGNORE INTO tags(name,color) VALUES(?,?)", [.text(name), .text(color.rawValue)])
+            guard let statement = prepare("SELECT id FROM tags WHERE name=? COLLATE NOCASE") else { return nil }
+            defer { sqlite3_finalize(statement) }
+            bind(statement, [.text(name)])
+            return sqlite3_step(statement) == SQLITE_ROW ? sqlite3_column_int64(statement, 0) : nil
+        }
+    }
+
+    func setTag(_ tagID: Int64, for itemID: Int64, included: Bool) {
+        queue.sync {
+            if included {
+                update("INSERT OR IGNORE INTO item_tags(item_id,tag_id) SELECT ?,? WHERE EXISTS(SELECT 1 FROM items WHERE id=?) AND EXISTS(SELECT 1 FROM tags WHERE id=?)",
+                       [.int(itemID), .int(tagID), .int(itemID), .int(tagID)])
+            } else {
+                update("DELETE FROM item_tags WHERE item_id=? AND tag_id=?", [.int(itemID), .int(tagID)])
+            }
+        }
+    }
+
+    func deleteTag(_ id: Int64) {
+        queue.sync {
+            update("DELETE FROM item_tags WHERE tag_id=?", [.int(id)])
+            update("DELETE FROM tags WHERE id=?", [.int(id)])
         }
     }
 
@@ -336,10 +423,14 @@ final class ClipboardStore {
     }
 
     private func update(_ sql: String, _ values: [Value]) {
-        guard let statement = prepare(sql) else { return }
+        _ = write(sql, values)
+    }
+
+    private func write(_ sql: String, _ values: [Value]) -> Bool {
+        guard let statement = prepare(sql) else { return false }
         defer { sqlite3_finalize(statement) }
         bind(statement, values)
-        sqlite3_step(statement)
+        return sqlite3_step(statement) == SQLITE_DONE
     }
 
     private func rowID(forHash hash: String) -> Int64? {

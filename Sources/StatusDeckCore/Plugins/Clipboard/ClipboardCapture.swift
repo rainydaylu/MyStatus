@@ -133,6 +133,21 @@ final class ClipboardCapture {
         }
     }
 
+    @discardableResult
+    func restorePlainText(_ id: Int64) -> Bool {
+        queue.sync {
+            let representations = store.representations(of: id)
+            guard let text = ClipboardPlainText.from(representations), !text.isEmpty else { return false }
+            let item = NSPasteboardItem()
+            item.setString(text, forType: .string)
+            pasteboard.clearContents()
+            guard pasteboard.writeObjects([item]) else { return false }
+            lastChangeCount = pasteboard.changeCount
+            store.touch(id)
+            return true
+        }
+    }
+
     private func poll() {
         let count = pasteboard.changeCount
         guard count != lastChangeCount else { return }

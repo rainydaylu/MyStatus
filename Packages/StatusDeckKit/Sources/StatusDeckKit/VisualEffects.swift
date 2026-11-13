@@ -78,6 +78,7 @@ public struct DeckLight: View {
                                 .overlay(shape.strokeBorder(.white, lineWidth: 0.65))
                         }
                     }
+                    .clipShape(shape)
                 }
             }
         }
