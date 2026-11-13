@@ -37,18 +37,6 @@
 
 ---
 
-## What is new in 1.2.4
-
-- Detects efficiency, performance, and super CPU cores dynamically, including Macs without an efficiency cluster.
-- Cards support hover and click previews, with direct touch input. The main menu card spacing is 20% smaller.
-- Clipboard history supports colored tags and previews for images, rich text, HTML, tables, files, links, code, and colors. Hover or click to preview, double-click to copy once and close, or press Esc to close both panes. The context menu includes **Copy plain text**.
-- Clipboard panes use the main menu material. The preview occupies 30% less area; a measured viewport fixes missing hover previews.
-- Upload/download and disk read/write charts show independent vertical scales.
-- **Launch at login** is available and enabled by default. Saved preferences are preserved.
-- Mos defaults to reversal on and smoothing off. Advanced defaults are **23 px / 1.45 / 0.50**, and sliders no longer draw tick marks. Custom profiles and app exceptions are preserved.
-
-Validation: **219 app tests and 6 Mos tests passed**. Native window tests exercise the rendered clipboard list, hover/click priority, double-click copying, and Esc dismissal.
-
 ## Getting started
 
 1. **Download and unzip.** Choose the MyStatus ZIP under **Assets** on the latest release page, then double-click it in Finder.
