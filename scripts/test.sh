@@ -11,6 +11,10 @@ if [[ "${1:-}" == --mos ]]; then
   package="$STATUSDECK_ROOT/Extensions/MosPlugin"
   scratch="$STATUSDECK_ROOT/.build/mos-tests"
   shift
+elif [[ "${1:-}" == --logo-light ]]; then
+  package="$STATUSDECK_ROOT/Extensions/LogoLightPlugin"
+  scratch="$STATUSDECK_ROOT/.build/logo-light-tests"
+  shift
 fi
 
 flags=()

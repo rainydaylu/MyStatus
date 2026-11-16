@@ -4,6 +4,8 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>MyStatus</string>
 	<key>CFBundleExecutable</key>
 	<string>mystatus</string>
 	<key>CFBundleIconFile</key>
@@ -14,31 +16,29 @@
 	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>MyStatus</string>
-	<key>CFBundleDisplayName</key>
-	<string>MyStatus</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2.4</string>
+	<string>1.3.1</string>
 	<key>CFBundleVersion</key>
-	<string>49</string>
+	<string>51</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>LSUIElement</key>
 	<true/>
-	<key>NSHighResolutionCapable</key>
-	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>CodeIsland uses Automation to open the matching terminal window or tab when you choose a session.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>MyStatus uses system playback for software volume and the optional logo light music response. No microphone input is used and no audio is recorded or saved.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Toggle Bluetooth and manage paired devices from the panel.</string>
-	<key>NSAudioCaptureUsageDescription</key>
-	<string>Software volume adjusts system audio and plays it immediately. It does not record or save audio.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
 	<key>NSLocationUsageDescription</key>
 	<string>macOS requires Location permission to show the Wi-Fi network name. MyStatus does not read your location.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>macOS requires Location permission to show the Wi-Fi network name. MyStatus does not read your location.</string>
-	<key>NSAppleEventsUsageDescription</key>
-	<string>CodeIsland uses Automation to open the matching terminal window or tab when you choose a session.</string>
 </dict>
 </plist>

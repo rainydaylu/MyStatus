@@ -1,0 +1,7 @@
+{
+  "repository": "Ark0N/LogoLight",
+  "commit": "3f59fe67fe15c27e5cf513998c70286a6dbacf76",
+  "license": "MIT",
+  "sourcePrefix": "Sources/LogoLightCore/",
+  "adapter": "MyStatus LogoLightHost (new implementation); no Backlit source or assets"
+}

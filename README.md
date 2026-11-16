@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <em>v1.2.4 · Apple silicon Macs (M1 or newer) · macOS 13 or later</em>
+  <em>v1.3.1 · Apple silicon Macs (M1 or newer) · macOS 13 or later</em>
   <br>
   <a href="README.zh-CN.md">简体中文</a>
 </p>
@@ -111,8 +111,9 @@ In **Preferences**, choose a light or dark appearance or follow the system setti
 | **Hanging Clipboard** | Keep copied images and screenshots at the top of the screen so you can preview, drag, or annotate them. |
 | **Mos** | Smooth out mouse-wheel scrolling, reverse its direction separately from the trackpad, and set app-specific exceptions. |
 | **CodeIsland** | See supported local AI coding sessions in a notch-style panel at the top of the display. |
+| **Logo light** | Control a compatible illuminated Apple logo with steady, breathing, battery, music, AI coding status, trackpad, and typing modes. All seven modes appear as selectable cards in the plug-in settings. |
 
-Enable the extensions you want in **Edit Controls**. **Plugin updates** can check for new upstream versions. Hanging Clipboard and CodeIsland require macOS 14 or later.
+Enable the extensions you want in **Edit Controls**. **Plugin updates** can check for new upstream versions. Hanging Clipboard, CodeIsland, and Logo light require macOS 14 or later. Logo light also needs compatible illuminated-logo hardware; music response requires macOS 14.2 or later. Its AI mode follows CodeIsland, and Music/Typing request system access only when used.
 
 ---
 

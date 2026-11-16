@@ -8,7 +8,7 @@ NAME="$(basename "$PACKAGE")"
 source "$ROOT/scripts/swift-env.sh"
 
 cd "$PACKAGE"
-deck_swift build -c release -j 4 --scratch-path "$ROOT/.build/$NAME"
+deck_swift build -c release -j 4 --scratch-path "$ROOT/.build/$NAME" --product "$NAME"
 BIN_DIR="$(deck_swift build -c release -j 4 --scratch-path "$ROOT/.build/$NAME" --show-bin-path)"
 
 OUT="$ROOT/build/plugins/$NAME.deckplugin"
@@ -17,6 +17,15 @@ mkdir -p "$OUT"
 cp plugin.json "$OUT/"
 LIBRARY="$(python3 -I -c "import json; print(json.load(open('plugin.json'))['library'])")"
 cp "$BIN_DIR/$LIBRARY" "$OUT/$LIBRARY"
+# Optional headless helper executables; never separate application bundles.
+while IFS= read -r HELPER; do
+    [ -n "$HELPER" ] || continue
+    case "$HELPER" in *[!a-zA-Z0-9_-]*|.*) echo "Invalid plugin helper name" >&2; exit 1 ;; esac
+    deck_swift build -c release -j 4 --scratch-path "$ROOT/.build/$NAME" --product "$HELPER"
+    cp "$BIN_DIR/$HELPER" "$OUT/$HELPER"
+    /usr/bin/strip -S "$OUT/$HELPER"
+    codesign --force --sign - "$OUT/$HELPER"
+done < <(python3 -I -c "import json; print('\n'.join(json.load(open('plugin.json')).get('helpers', [])))")
 for RESOURCE in "$BIN_DIR"/*.bundle; do
     [ ! -d "$RESOURCE" ] || cp -R "$RESOURCE" "$OUT/"
 done

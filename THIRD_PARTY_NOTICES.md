@@ -65,3 +65,12 @@ an independent drawing).
 - **Tutti** is a visual reference only. No Tutti source, binaries, or assets are included.
 
 Each adapter has an `upstream.json` describing the exact repository and integrated source scope. In-app updates fetch that source scope at an immutable Git commit and compile it using the shipped adapter. Incompatible upstream changes fail without replacing the installed plugin.
+
+
+## LogoLight hardware engine
+
+The optional LogoLightPlugin uses LogoLightCore from Ark0N/LogoLight (MIT).
+Copyright (c) 2026 Ark0N. Full terms: LICENSES/LogoLight-MIT.txt.
+Pinned revision and adaptation notes are in Extensions/LogoLightPlugin/upstream.json.
+MyStatus supplies the plugin lifecycle, signal modes, CodeIsland event bridge,
+settings UI and recovery helper. This plugin does not include Backlit source or assets.

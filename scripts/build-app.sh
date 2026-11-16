@@ -53,7 +53,7 @@ codesign --force --sign - --identifier local.statusdeck.app \
 
 # Distributable libraries, without any standalone application or duplicate SDK.
 mkdir -p "$APP/Contents/Resources/BundledPlugins" "$APP/Contents/Resources/ExtensionSources" "$APP/Contents/Resources/Packages"
-for EXTENSION in HangingClipboardPlugin MosPlugin CodeIslandPlugin; do
+for EXTENSION in HangingClipboardPlugin MosPlugin CodeIslandPlugin LogoLightPlugin; do
     scripts/build-plugin.sh "Extensions/$EXTENSION"
     cp -R "build/plugins/$EXTENSION.deckplugin" "$APP/Contents/Resources/BundledPlugins/"
     rsync -a --exclude=.build --exclude=.git "Extensions/$EXTENSION/" "$APP/Contents/Resources/ExtensionSources/$EXTENSION/"

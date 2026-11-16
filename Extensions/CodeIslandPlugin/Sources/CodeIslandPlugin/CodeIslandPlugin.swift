@@ -25,6 +25,7 @@ final class CodeIslandRuntime: ObservableObject {
     let appState = AppState()
     private weak var host: (any DeckHost)?
     private var hookServer: HookServer?
+    private var codingLight: CodingLightPublisher?
     private(set) var panelController: PanelWindowController?
     @Published private(set) var hooksListening = false
 
@@ -33,11 +34,14 @@ final class CodeIslandRuntime: ObservableObject {
         Self.current = self
         appState.startSessionDiscovery()
         appState.startCoworkWatcher()
+        codingLight = CodingLightPublisher(state: appState)
         updateIsland(UserDefaults.standard.object(forKey: showsIslandKey) as? Bool ?? true)
         updateHooks(UserDefaults.standard.bool(forKey: usesHooksKey))
     }
 
     func stop() {
+        codingLight?.stop()
+        codingLight = nil
         updateHooks(false)
         updateIsland(false)
         appState.stopCoworkWatcher()

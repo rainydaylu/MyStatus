@@ -306,6 +306,9 @@ private struct PluginDetail: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            if lightControlsFirst, let view = entry.plugin?.settingsView {
+                Section(DeckL("选项")) { view }
+            }
             if !entry.manifest.permissions.isEmpty {
                 Section(DeckL("权限")) {
                     ForEach(entry.manifest.permissions, id: \.self) { note in
@@ -316,7 +319,7 @@ private struct PluginDetail: View {
                     }
                 }
             }
-            if entry.isActive, let view = entry.plugin?.settingsView {
+            if !lightControlsFirst, entry.isActive, let view = entry.plugin?.settingsView {
                 Section(DeckL("选项")) { view }
             }
         }
@@ -327,6 +330,10 @@ private struct PluginDetail: View {
         } message: {
             Text(DeckL("插件的代码会在 MyStatus 内运行，拥有和它相同的权限，包括读取剪贴板历史。只启用你信任的来源。"))
         }
+    }
+
+    private var lightControlsFirst: Bool {
+        entry.id == "com.statusdeck.logolight" && entry.isActive
     }
 
     private var cannotEnable: Bool {

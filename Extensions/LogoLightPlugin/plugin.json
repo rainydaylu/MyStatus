@@ -1,0 +1,19 @@
+{
+  "id": "com.statusdeck.logolight",
+  "name": "标志灯光",
+  "summary": "插件 5 · 独立调节 Apple 标志亮度，支持呼吸、电池、音乐、编程状态与输入互动。",
+  "symbol": "lightbulb",
+  "version": "1.0.1",
+  "adapterRevision": 2,
+  "category": "tools",
+  "sortOrder": 400,
+  "apiVersion": 2,
+  "library": "libLogoLightPlugin.dylib",
+  "helpers": [
+    "logo-light-helper"
+  ],
+  "permissions": [
+    "需要可独立控制的发光 Apple 标志硬件。所有控制均位于本插件设置页。",
+    "音乐互动按需使用系统音频；打字互动按需使用输入监控。不保存音频或输入文字。"
+  ]
+}
