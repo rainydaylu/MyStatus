@@ -312,14 +312,13 @@ private struct PluginDetail: View {
             }
             if entry.id == "com.statusdeck.codeisland" {
                 Section {
-                    Button(DeckL("更多设置…", "More settings…")) {
+                    CodeIslandSettingsLauncher {
                         if manager.settingsWindowRequiresTrust(for: entry.id) {
                             isConfirmingSettingsTrust = true
                         } else {
                             manager.openSettingsWindow(for: entry.id)
                         }
                     }
-                    .accessibilityIdentifier("codeisland.more-settings")
                     .disabled(cannotEnable)
                 }
             }
@@ -359,6 +358,49 @@ private struct PluginDetail: View {
     private var cannotEnable: Bool {
         guard !entry.isEnabled, entry.problem != nil, case let .external(item) = entry.source else { return false }
         return item.problem != nil || item.file == nil
+    }
+}
+
+private struct CodeIslandSettingsLauncher: View {
+    let open: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: 14) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 46, height: 46)
+                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(DeckL("详细设置", "Detailed settings"))
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Text(DeckL("外观、行为、会话、声音与快捷键", "Appearance, behavior, sessions, sound and shortcuts"))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 12)
+                Image(systemName: "arrow.up.forward")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.accentColor.opacity(isHovered ? 0.13 : 0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.accentColor.opacity(isHovered ? 0.36 : 0.20), lineWidth: 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(DeckL("打开 CodeIsland 原版完整设置面板", "Open CodeIsland’s complete original settings window"))
+        .accessibilityLabel(DeckL("详细设置", "Detailed settings"))
+        .accessibilityHint(DeckL("打开 CodeIsland 原版完整设置面板", "Open CodeIsland’s complete original settings window"))
+        .accessibilityIdentifier("codeisland.detailed-settings")
     }
 }
 
