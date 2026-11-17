@@ -26,12 +26,19 @@ final class CodeIslandRuntime: ObservableObject {
     private weak var host: (any DeckHost)?
     private var hookServer: HookServer?
     private var codingLight: CodingLightPublisher?
+    private var subsessionSettingsObserver: NSObjectProtocol?
     private(set) var panelController: PanelWindowController?
     @Published private(set) var hooksListening = false
 
     func start(host: any DeckHost) {
         self.host = host
         Self.current = self
+        subsessionSettingsObserver = NotificationCenter.default.addObserver(
+            forName: .init("com.statusdeck.codeisland.subsessionModeChanged"), object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.appState.applyCurrentPluginSessionMode() }
+        }
+        appState.applyCurrentPluginSessionMode()
         appState.startSessionDiscovery()
         appState.startCoworkWatcher()
         codingLight = CodingLightPublisher(state: appState)
@@ -40,6 +47,8 @@ final class CodeIslandRuntime: ObservableObject {
     }
 
     func stop() {
+        if let subsessionSettingsObserver { NotificationCenter.default.removeObserver(subsessionSettingsObserver) }
+        subsessionSettingsObserver = nil
         codingLight?.stop()
         codingLight = nil
         updateHooks(false)
@@ -95,7 +104,7 @@ final class CodeIslandRuntime: ObservableObject {
 
 @MainActor
 final class CodeIslandPlugin: DeckPlugin {
-    let manifest = PluginManifest(id: pluginID, name: "CodeIsland", summary: "wxtsky/CodeIsland 原生刘海面板与会话状态", symbol: "terminal", version: "1.2", category: .tools, enabledByDefault: false, sortOrder: 399)
+    let manifest = PluginManifest(id: pluginID, name: "CodeIsland", summary: "wxtsky/CodeIsland 原生刘海面板与会话状态", symbol: "terminal", version: "1.2.1", category: .tools, enabledByDefault: false, sortOrder: 399)
     private var runtime: CodeIslandRuntime?
 
     func activate(host: any DeckHost) {

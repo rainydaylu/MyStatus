@@ -309,6 +309,11 @@ private struct PluginDetail: View {
             if lightControlsFirst, let view = entry.plugin?.settingsView {
                 Section(DeckL("选项")) { view }
             }
+            if entry.id == "com.statusdeck.codeisland" {
+                Section(DeckL("线程显示", "Thread display")) {
+                    CodeIslandSubsessionSettings()
+                }
+            }
             if !entry.manifest.permissions.isEmpty {
                 Section(DeckL("权限")) {
                     ForEach(entry.manifest.permissions, id: \.self) { note in
@@ -339,6 +344,30 @@ private struct PluginDetail: View {
     private var cannotEnable: Bool {
         guard !entry.isEnabled, entry.problem != nil, case let .external(item) = entry.source else { return false }
         return item.problem != nil || item.file == nil
+    }
+}
+
+/// These preferences remain available while the extension is disabled, without
+/// loading its library or starting session discovery just to configure it.
+private struct CodeIslandSubsessionSettings: View {
+    // Matches CodeIsland's existing Agent Sub-Sessions preference and default.
+    @AppStorage("pluginSessionMode") private var mode = "separate"
+
+    var body: some View {
+        Picker(DeckL("子智能体线程", "Subagent threads"), selection: $mode) {
+            Text(DeckL("独立显示", "Separate")).tag("separate")
+            Text(DeckL("合并到主会话", "Merge into parent")).tag("merge")
+            Text(DeckL("隐藏", "Hide")).tag("hide")
+        }
+        .pickerStyle(.segmented)
+        .accessibilityIdentifier("codeisland.subagent-display")
+        .onChange(of: mode) { _ in
+            NotificationCenter.default.post(name: .init("com.statusdeck.codeisland.subsessionModeChanged"), object: nil)
+        }
+        Text(DeckL("设置子智能体线程在 CodeIsland 中的显示方式。隐藏后，等待你确认的请求仍会显示。", "Choose how CodeIsland displays subagent threads. Requests waiting for your confirmation remain visible when threads are hidden."))
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 

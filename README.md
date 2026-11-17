@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <em>v1.3.2 · Apple silicon Macs (M1 or newer) · macOS 13 or later</em>
+  <em>v1.3.3 · Apple silicon Macs (M1 or newer) · macOS 13 or later</em>
   <br>
   <a href="README.zh-CN.md">简体中文</a>
 </p>
@@ -110,7 +110,7 @@ In **Preferences**, choose a light or dark appearance or follow the system setti
 | --- | --- |
 | **Hanging Clipboard** | Keep copied images and screenshots at the top of the screen so you can preview, drag, or annotate them. |
 | **Mos** | Smooth out mouse-wheel scrolling, reverse its direction separately from the trackpad, and set app-specific exceptions. |
-| **CodeIsland** | See supported local AI coding sessions in a notch-style panel at the top of the display. |
+| **CodeIsland** | See supported local AI coding sessions in a notch-style panel at the top of the display. Show subagent threads separately, merge them into the parent, or hide them from MyStatus settings; requests awaiting confirmation remain visible. |
 | **Logo light** | Control a compatible illuminated Apple logo with steady, breathing, battery, music, AI coding status, trackpad, typing, and looping Morse code modes. All eight modes appear as selectable cards in the plug-in settings. |
 
 Enable the extensions you want in **Edit Controls**. **Plugin updates** can check for new upstream versions. Hanging Clipboard, CodeIsland, and Logo light require macOS 14 or later. Logo light also needs compatible illuminated-logo hardware; music response requires macOS 14.2 or later. Morse mode loops a one-line message with a dot/dash preview; Chinese is transliterated to pinyin. Closed-lid continuation stops when the Mac is locked or the user session becomes inactive. Its AI mode follows CodeIsland, and Music/Typing request system access only when used.
