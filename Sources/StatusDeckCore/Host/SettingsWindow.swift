@@ -268,6 +268,7 @@ private struct PluginDetail: View {
     let entry: PluginManager.Entry
     @ObservedObject var manager: PluginManager
     @State private var isConfirmingTrust = false
+    @State private var isConfirmingSettingsTrust = false
 
     var body: some View {
         Form {
@@ -310,8 +311,16 @@ private struct PluginDetail: View {
                 Section(DeckL("选项")) { view }
             }
             if entry.id == "com.statusdeck.codeisland" {
-                Section(DeckL("线程显示", "Thread display")) {
-                    CodeIslandSubsessionSettings()
+                Section {
+                    Button(DeckL("更多设置…", "More settings…")) {
+                        if manager.settingsWindowRequiresTrust(for: entry.id) {
+                            isConfirmingSettingsTrust = true
+                        } else {
+                            manager.openSettingsWindow(for: entry.id)
+                        }
+                    }
+                    .accessibilityIdentifier("codeisland.more-settings")
+                    .disabled(cannotEnable)
                 }
             }
             if !entry.manifest.permissions.isEmpty {
@@ -335,6 +344,12 @@ private struct PluginDetail: View {
         } message: {
             Text(DeckL("插件的代码会在 MyStatus 内运行，拥有和它相同的权限，包括读取剪贴板历史。只启用你信任的来源。"))
         }
+        .alert(DeckL("打开 CodeIsland 设置？", "Open CodeIsland settings?"), isPresented: $isConfirmingSettingsTrust) {
+            Button(DeckL("打开", "Open")) { manager.openSettingsWindow(for: entry.id, approvingTrust: true) }
+            Button(DeckL("取消"), role: .cancel) {}
+        } message: {
+            Text(DeckL("打开原版设置需要加载 CodeIsland 插件代码。插件会保持关闭，不会启动会话监听。", "Opening the original settings loads CodeIsland's code. The plugin stays disabled and session monitoring does not start."))
+        }
     }
 
     private var lightControlsFirst: Bool {
@@ -344,30 +359,6 @@ private struct PluginDetail: View {
     private var cannotEnable: Bool {
         guard !entry.isEnabled, entry.problem != nil, case let .external(item) = entry.source else { return false }
         return item.problem != nil || item.file == nil
-    }
-}
-
-/// These preferences remain available while the extension is disabled, without
-/// loading its library or starting session discovery just to configure it.
-private struct CodeIslandSubsessionSettings: View {
-    // Matches CodeIsland's existing Agent Sub-Sessions preference and default.
-    @AppStorage("pluginSessionMode") private var mode = "separate"
-
-    var body: some View {
-        Picker(DeckL("子智能体线程", "Subagent threads"), selection: $mode) {
-            Text(DeckL("独立显示", "Separate")).tag("separate")
-            Text(DeckL("合并到主会话", "Merge into parent")).tag("merge")
-            Text(DeckL("隐藏", "Hide")).tag("hide")
-        }
-        .pickerStyle(.segmented)
-        .accessibilityIdentifier("codeisland.subagent-display")
-        .onChange(of: mode) { _ in
-            NotificationCenter.default.post(name: .init("com.statusdeck.codeisland.subsessionModeChanged"), object: nil)
-        }
-        Text(DeckL("设置子智能体线程在 CodeIsland 中的显示方式。隐藏后，等待你确认的请求仍会显示。", "Choose how CodeIsland displays subagent threads. Requests waiting for your confirmation remain visible when threads are hidden."))
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
     }
 }
 

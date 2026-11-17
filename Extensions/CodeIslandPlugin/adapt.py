@@ -12,12 +12,32 @@ def edit(name, before, after):
         raise SystemExit(f'CodeIsland adapter needs review: {name}')
     path.write_text(text.replace(before, after))
 
-settings = (root / 'SettingsView.swift').read_text()
-logo = settings.split('struct AppLogoView: View {', 1)[1].split('// MARK: - Shortcuts Page', 1)[0]
-font = settings.split('enum ContentFontSize {', 1)[1].split('private struct AppearancePage:', 1)[0]
-(root / 'AppLogoView.swift').write_text('import SwiftUI\n\nstruct AppLogoView: View {' + logo + '\nenum ContentFontSize {' + font)
-for name in ['CodeIslandApp.swift', 'AppDelegate.swift', 'SettingsView.swift', 'SettingsWindowController.swift', 'StatusItemController.swift', 'UpdateChecker.swift', 'DiagnosticsExporter.swift']:
+for name in ['CodeIslandApp.swift', 'AppDelegate.swift', 'SettingsWindowController.swift', 'StatusItemController.swift', 'UpdateChecker.swift']:
     (root / name).unlink()
+edit('SettingsView.swift', 'import SwiftUI\n', 'import SwiftUI\nimport StatusDeckKit\n')
+edit('SettingsView.swift', '@State private var launchAtLogin: Bool\n\n    init() {\n        _launchAtLogin = State(initialValue: SettingsManager.shared.launchAtLogin)\n    }', '@AppStorage("ui.language") private var hostedLanguage = "system"')
+edit('SettingsView.swift', '''Picker(l10n["language"], selection: $l10n.language) {
+                    Text(l10n["system_language"]).tag("system")
+                    Text("English").tag("en")
+                    Text("简体中文").tag("zh")
+                    Text("繁體中文").tag("zh-Hant")
+                    Text("Deutsch").tag("de")
+                    Text("日本語").tag("ja")
+                    Text("한국어").tag("ko")
+                    Text("Türkçe").tag("tr")
+                }
+                Toggle(l10n["launch_at_login"], isOn: $launchAtLogin)
+                    .onChange(of: launchAtLogin) { _, v in
+                        SettingsManager.shared.launchAtLogin = v
+                    }''', '''Picker(l10n["language"], selection: $hostedLanguage) {
+                    ForEach(DeckLanguage.allCases, id: \\.rawValue) { language in
+                        Text(language.displayName).tag(language.rawValue)
+                    }
+                }
+                DeckLoginItemSetting()''')
+edit('SettingsView.swift', 'NSApp.delegate as? AppDelegate', 'CodeIslandRuntime.current')
+edit('SettingsView.swift', 'AppVersion.current', 'AppVersion.fallback')
+edit('DiagnosticsExporter.swift', 'NSApp.delegate as? AppDelegate', 'CodeIslandRuntime.current')
 edit('NotchPanelView.swift', 'NSApp.delegate as? AppDelegate', 'CodeIslandRuntime.current')
 edit('NotchPanelView.swift', 'SettingsWindowController.shared.show()', 'CodeIslandRuntime.current?.openSettings()')
 edit('QuitConfirmation.swift', 'NSApplication.shared.terminate(nil)', '_ = Task { @MainActor in CodeIslandRuntime.current?.hideIsland() }')

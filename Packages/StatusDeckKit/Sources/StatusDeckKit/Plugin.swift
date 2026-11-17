@@ -177,6 +177,13 @@ public extension DeckPlugin {
     var menuBarItem: DeckMenuBarItem? { nil }
 }
 
+/// Optional settings window, separate from activation and from the host's form.
+/// Opening it must not start an otherwise disabled plugin's background work.
+@MainActor
+public protocol DeckPluginSettingsWindow: AnyObject {
+    func openSettingsWindow(host: any DeckHost)
+}
+
 /// For the single C function a third-party plugin exports:
 ///
 ///     @_cdecl("statusdeck_plugin_create")

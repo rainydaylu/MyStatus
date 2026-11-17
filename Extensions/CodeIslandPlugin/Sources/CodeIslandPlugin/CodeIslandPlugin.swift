@@ -26,29 +26,27 @@ final class CodeIslandRuntime: ObservableObject {
     private weak var host: (any DeckHost)?
     private var hookServer: HookServer?
     private var codingLight: CodingLightPublisher?
-    private var subsessionSettingsObserver: NSObjectProtocol?
+    private let hotKeyManager = GlobalHotKeyManager()
+    private var localShortcutMonitor: Any?
     private(set) var panelController: PanelWindowController?
     @Published private(set) var hooksListening = false
 
     func start(host: any DeckHost) {
         self.host = host
         Self.current = self
-        subsessionSettingsObserver = NotificationCenter.default.addObserver(
-            forName: .init("com.statusdeck.codeisland.subsessionModeChanged"), object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.appState.applyCurrentPluginSessionMode() }
-        }
         appState.applyCurrentPluginSessionMode()
         appState.startSessionDiscovery()
         appState.startCoworkWatcher()
         codingLight = CodingLightPublisher(state: appState)
         updateIsland(UserDefaults.standard.object(forKey: showsIslandKey) as? Bool ?? true)
         updateHooks(UserDefaults.standard.bool(forKey: usesHooksKey))
+        setupGlobalShortcut()
+        HostedCodeIslandSettingsWindow.shared.bind(appState: appState)
     }
 
     func stop() {
-        if let subsessionSettingsObserver { NotificationCenter.default.removeObserver(subsessionSettingsObserver) }
-        subsessionSettingsObserver = nil
+        teardownGlobalShortcut()
+        HostedCodeIslandSettingsWindow.shared.close()
         codingLight?.stop()
         codingLight = nil
         updateHooks(false)
@@ -84,8 +82,79 @@ final class CodeIslandRuntime: ObservableObject {
         if appState.surface == .collapsed { appState.surface = .sessionList }
     }
 
-    func openSettings() { host?.openSettings(pluginID: pluginID) }
+    func openSettings() {
+        HostedCodeIslandSettingsWindow.shared.show(appState: appState, openUpdates: { [weak self] in self?.openUpdates() })
+    }
     func openUpdates() { host?.openSettings(pluginID: "__updates__") }
+
+    func setupGlobalShortcut() {
+        teardownGlobalShortcut()
+
+        // Collect all enabled shortcut bindings, skip duplicates (first wins)
+        var bindings: [(keyCode: UInt16, mods: NSEvent.ModifierFlags, action: ShortcutAction)] = []
+        var seen: Set<String> = []
+        for action in ShortcutAction.allCases {
+            guard action.isEnabled else { continue }
+            let b = action.binding
+            let key = "\(b.keyCode)-\(b.modifiers.rawValue)"
+            guard seen.insert(key).inserted else { continue }
+            bindings.append((b.keyCode, b.modifiers, action))
+        }
+        guard !bindings.isEmpty else { return }
+
+        // Global path: Carbon RegisterEventHotKey fires from any frontmost app
+        // and — unlike an NSEvent global keyboard monitor — needs no
+        // Accessibility permission. This is the primary handler. See #217.
+        for b in bindings {
+            hotKeyManager.register(keyCode: b.keyCode, modifiers: b.mods) { [weak self] in
+                Task { @MainActor in self?.executeShortcut(b.action) }
+            }
+        }
+
+        // Local monitor: same-app fallback so the shortcut still works (and is
+        // swallowed) while CodeIsland's own panel/settings window is focused.
+        let localHandler: (NSEvent) -> Bool = { [weak self] event in
+            let eventMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            for b in bindings where event.keyCode == b.keyCode && eventMods == b.mods {
+                Task { @MainActor in self?.executeShortcut(b.action) }
+                return true
+            }
+            return false
+        }
+        localShortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            localHandler(event) ? nil : event
+        }
+    }
+
+    private func teardownGlobalShortcut() {
+        hotKeyManager.unregisterAll()
+        if let m = localShortcutMonitor { NSEvent.removeMonitor(m) }
+        localShortcutMonitor = nil
+    }
+
+    private func executeShortcut(_ action: ShortcutAction) {
+        switch action {
+        // Whatever the press opens comes to the user: onto the display they
+        // work on, and up over a fullscreen app Hide in Fullscreen hid it
+        // behind (#384).
+        case .togglePanel:
+            let away = panelController?.isIslandAwayFromUser ?? false
+            if appState.togglePanelFromShortcut(islandAway: away) != .collapsed {
+                panelController?.bringIslandIntoSight()
+            }
+        // Card shortcuts act only on the card on screen (#308); with the
+        // request hidden they open its card instead of acting unseen.
+        case .approve, .approveAlways, .deny, .skipQuestion:
+            let onScreen = panelController?.isIslandOnScreen ?? true
+            if case .opened = appState.performCardShortcut(action, islandOnScreen: onScreen) {
+                panelController?.bringIslandIntoSight()
+            }
+        case .jumpToTerminal:
+            if let id = appState.activeSessionId, let session = appState.sessions[id] {
+                TerminalActivator.activate(session: session, sessionId: id)
+            }
+        }
+    }
 
     func updateHooks(_ enabled: Bool) {
         if !enabled {
@@ -103,9 +172,15 @@ final class CodeIslandRuntime: ObservableObject {
 }
 
 @MainActor
-final class CodeIslandPlugin: DeckPlugin {
-    let manifest = PluginManifest(id: pluginID, name: "CodeIsland", summary: "wxtsky/CodeIsland 原生刘海面板与会话状态", symbol: "terminal", version: "1.2.1", category: .tools, enabledByDefault: false, sortOrder: 399)
+final class CodeIslandPlugin: DeckPlugin, DeckPluginSettingsWindow {
+    let manifest = PluginManifest(id: pluginID, name: "CodeIsland", summary: "wxtsky/CodeIsland 原生刘海面板与会话状态", symbol: "terminal", version: "1.2.2", category: .tools, enabledByDefault: false, sortOrder: 399)
     private var runtime: CodeIslandRuntime?
+
+    func openSettingsWindow(host: any DeckHost) {
+        HostedCodeIslandSettingsWindow.shared.show(appState: runtime?.appState, openUpdates: { [weak host] in
+            host?.openSettings(pluginID: "__updates__")
+        })
+    }
 
     func activate(host: any DeckHost) {
         guard !host.isDryRun else { _ = Bundle.appModule; return }

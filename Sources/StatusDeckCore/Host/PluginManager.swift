@@ -339,6 +339,36 @@ final class PluginManager: ObservableObject {
         return item.problem == nil
     }
 
+    func settingsWindowRequiresTrust(for id: String) -> Bool {
+        guard let entry = entries.first(where: { $0.id == id }), entry.plugin == nil,
+              case let .external(item) = entry.source, let library = item.libraryURL else { return false }
+        return ExternalPluginLoader.fingerprint(of: library) != defaults.string(forKey: fingerprintKey(id))
+    }
+
+    /// Load only after an explicit settings request; do not change enabled state.
+    func openSettingsWindow(for id: String, approvingTrust: Bool = false) {
+        guard let index = entries.firstIndex(where: { $0.id == id }), let host else { return }
+        guard !settingsWindowRequiresTrust(for: id) || approvingTrust else { return }
+        if entries[index].plugin == nil, case let .external(item) = entries[index].source {
+            guard item.problem == nil else { return }
+            defaults.set(id, forKey: Self.activatingKey)
+            defaults.synchronize()
+            defer { defaults.removeObject(forKey: Self.activatingKey) }
+            switch ExternalPluginLoader.load(item) {
+            case let .success(plugin):
+                entries[index].plugin = plugin
+                entries[index].problem = nil
+                if let library = item.libraryURL {
+                    defaults.set(ExternalPluginLoader.fingerprint(of: library), forKey: fingerprintKey(id))
+                }
+            case let .failure(error):
+                entries[index].problem = error.message
+                return
+            }
+        }
+        (entries[index].plugin as? any DeckPluginSettingsWindow)?.openSettingsWindow(host: host)
+    }
+
     private func activate(at index: Int) {
         guard !entries[index].isActive, let host else { return }
 

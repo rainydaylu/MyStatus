@@ -18,10 +18,11 @@ private final class FakeHost: DeckHost {
 }
 
 @MainActor
-private final class FakePlugin: DeckPlugin {
+private final class FakePlugin: DeckPlugin, DeckPluginSettingsWindow {
     let manifest: PluginManifest
     var activations = 0
     var deactivations = 0
+    var settingsWindowsOpened = 0
 
     init(id: String, enabledByDefault: Bool = true, sortOrder: Int = 500) {
         manifest = PluginManifest(id: id, name: id, summary: "", symbol: "star", category: .tools, enabledByDefault: enabledByDefault, sortOrder: sortOrder)
@@ -29,6 +30,7 @@ private final class FakePlugin: DeckPlugin {
 
     func activate(host: any DeckHost) { activations += 1 }
     func deactivate() { deactivations += 1 }
+    func openSettingsWindow(host: any DeckHost) { settingsWindowsOpened += 1 }
 }
 
 private func temporaryFolder() -> URL {
@@ -90,6 +92,18 @@ private func writePlugin(in directory: URL, name: String = "Sample", id: String 
         let next = PluginManager(host: host, builtIns: [again], pluginsDirectory: temporaryFolder(), defaults: defaults)
         next.start()
         #expect(again.activations == 0)
+    }
+
+    @Test func originalSettingsWindowDoesNotEnableDisabledPlugin() {
+        let plugin = FakePlugin(id: "settings-only", enabledByDefault: false)
+        let defaults = isolatedDefaults()
+        let manager = PluginManager(host: host, builtIns: [plugin], pluginsDirectory: temporaryFolder(), defaults: defaults)
+        manager.start()
+        manager.openSettingsWindow(for: plugin.manifest.id)
+        #expect(plugin.settingsWindowsOpened == 1)
+        #expect(plugin.activations == 0)
+        #expect(manager.activePlugins.isEmpty)
+        #expect(defaults.object(forKey: "plugin.enabled.settings-only") == nil)
     }
 
     @Test func aPluginCanBeSwitchedBackOn() {
