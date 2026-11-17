@@ -23,12 +23,11 @@ struct LogoSettingsView: View {
                 }.disabled(runtime.connecting)
             }
             controls.disabled(!runtime.active)
-            Divider()
             HStack {
-                Text(DeckL("MyStatus 标志灯光 · 硬件引擎基于 MIT LogoLight", "MyStatus logo light · MIT LogoLight hardware engine"))
-                Spacer()
-                Link("Ark0N/LogoLight", destination: URL(string: "https://github.com/Ark0N/LogoLight")!)
-            }.font(.caption).foregroundStyle(.secondary)
+                Text(DeckL("关闭插件后恢复原有灯光设置", "Disabling the plug-in restores the original light settings"))
+                Spacer(minLength: 12)
+                Link("LogoLight · MIT", destination: URL(string: "https://github.com/Ark0N/LogoLight")!)
+            }.font(.system(size: 10)).foregroundStyle(.tertiary)
         }
     }
 
@@ -51,29 +50,60 @@ struct LogoSettingsView: View {
                     }
                 }
             }
-            Divider()
-            Label(runtime.settings.mode.title + DeckL("设置", " settings"), systemImage: runtime.settings.mode.symbol)
-                .font(.headline)
-            if runtime.settings.mode != .battery {
-                slider(DeckL("亮度", "Brightness"), value: $runtime.settings.brightness, range: 0...1,
-                       label: "\(Int((runtime.settings.brightness * 100).rounded()))%")
+            settingsCard {
+                Label(runtime.settings.mode.title + DeckL("设置", " settings"), systemImage: runtime.settings.mode.symbol)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .padding(.bottom, 3)
+                if runtime.settings.mode != .battery && runtime.settings.mode != .morse {
+                    slider(DeckL("亮度", "Brightness"), value: $runtime.settings.brightness, range: 0...1,
+                           label: "\(Int((runtime.settings.brightness * 100).rounded()))%")
+                }
+                modeOptions
             }
-            modeOptions
-            DisclosureGroup(DeckL("快捷键与合盖", "Shortcuts and closed lid")) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Toggle(DeckL("开启灯光快捷键", "Enable light shortcuts"), isOn: $runtime.settings.shortcuts)
-                    Text("⌃⌘B  " + DeckL("开关", "Toggle") + "   ·   ⌃⌘↑ / ↓  " + DeckL("亮度 ±5%", "Brightness ±5%"))
-                        .font(.footnote).foregroundStyle(.secondary)
-                    Toggle(DeckL("合盖继续灯光", "Keep light on with lid closed"), isOn: $runtime.settings.keepClosed)
-                    if runtime.settings.keepClosed {
-                        Stepper(DeckLF("最长 %d 分钟", "Up to %d minutes", runtime.settings.closedMinutes), value: $runtime.settings.closedMinutes, in: 1...30)
-                        Text(DeckL("需连接电源。限时运行；低电量模式或过热时停止。内置屏幕可能保持亮起。", "Requires external power. Time-limited; stops in Low Power Mode or high temperatures. The built-in screen may remain lit."))
-                            .font(.footnote).foregroundStyle(.secondary)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 235), spacing: 12)], alignment: .leading, spacing: 12) {
+                shortcutCard
+                closedLidCard
+            }
+        }
+    }
+
+    private var shortcutCard: some View {
+        settingsCard {
+            cardToggle(DeckL("快捷键", "Shortcuts"), symbol: "command", isOn: $runtime.settings.shortcuts)
+            Divider().padding(.vertical, 3)
+            HStack {
+                Text(DeckL("灯光开关", "Toggle light"))
+                Spacer()
+                keycap("⌃⌘B")
+            }
+            HStack {
+                Text(DeckL("亮度 ±5%", "Brightness ±5%"))
+                Spacer()
+                keycap("⌃⌘↑ / ↓")
+            }
+        }
+    }
+
+    private var closedLidCard: some View {
+        settingsCard {
+            cardToggle(DeckL("合盖续亮", "Closed-lid light"), symbol: "laptopcomputer", isOn: $runtime.settings.keepClosed)
+            Divider().padding(.vertical, 3)
+            HStack {
+                Text(DeckL("持续时间", "Duration"))
+                Spacer()
+                Picker(DeckL("持续时间", "Duration"), selection: $runtime.settings.closedMinutes) {
+                    ForEach(Array(Set([5, 10, 15, 30, runtime.settings.closedMinutes])).sorted(), id: \.self) { minutes in
+                        Text(DeckLF("%d 分钟", "%d minutes", minutes)).tag(minutes)
                     }
-                }.padding(.top, 12)
+                }
+                .labelsHidden().pickerStyle(.menu).fixedSize()
+                .disabled(!runtime.settings.keepClosed)
+                .accessibilityIdentifier("logolight.closed-duration")
             }
-            Text(DeckL("关闭插件会停止互动与音频，并恢复接管前的标志开关。开机启动由 MyStatus 的偏好设置统一管理。", "Disabling the plug-in stops input/audio and restores the original logo switch. MyStatus preferences manage login launch."))
-                .font(.footnote).foregroundStyle(.secondary)
+            Text(DeckL("需接通电源；锁屏或切换用户即熄灭。", "Requires power; stops on lock or user switching."))
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -91,17 +121,26 @@ struct LogoSettingsView: View {
                    label: String(format: "%.1f s", runtime.settings.cycleSeconds))
             floorSlider
         case .music:
-            Text(DeckL("跟随系统播放的音乐，不使用麦克风，不录制或保存音频。", "Follow system playback without using the microphone or recording/saving audio."))
-                .font(.footnote).foregroundStyle(.secondary)
             slider(DeckL("灵敏度", "Sensitivity"), value: $runtime.settings.musicGain, range: 0.25...3,
                    label: String(format: "%.2f ×", runtime.settings.musicGain))
             slider(DeckL("平滑时间", "Response smoothing"), value: $runtime.settings.musicResponse, range: 0.05...0.5,
                    label: String(format: "%.2f s", runtime.settings.musicResponse))
-            Toggle(DeckL("节拍之间熄灭", "Dark between beats"), isOn: $runtime.settings.darkBetweenBeats)
-            HStack {
-                Button(DeckL("重试系统音频", "Retry system audio")) { runtime.retryAudio() }
-                Link(DeckL("音频隐私设置", "Audio privacy settings"), destination: URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture")!)
-            }
+            Divider().padding(.vertical, 3)
+            settingToggle(DeckL("节拍之间熄灭", "Dark between beats"), isOn: $runtime.settings.darkBetweenBeats)
+            HStack(spacing: 12) {
+                Text(DeckL("跟随系统音频，不使用麦克风", "System audio only, no microphone"))
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Button { runtime.retryAudio() } label: {
+                    Image(systemName: "arrow.clockwise")
+                }.help(DeckL("重试系统音频", "Retry system audio"))
+                    .accessibilityLabel(DeckL("重试系统音频", "Retry system audio"))
+                Link(destination: URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture")!) {
+                    Image(systemName: "lock.shield")
+                }.help(DeckL("音频隐私设置", "Audio privacy settings"))
+                    .accessibilityLabel(DeckL("音频隐私设置", "Audio privacy settings"))
+            }.buttonStyle(.borderless).controlSize(.small)
+
         case .agents:
             Text(DeckL("自动跟随 MyStatus 的 CodeIsland：工作时呼吸，等待时微亮，需要确认时闪烁。请同时启用 CodeIsland 插件。", "Follow MyStatus CodeIsland: breathe while working, dim while idle, and flash for attention. Enable the CodeIsland plug-in too."))
                 .font(.footnote).foregroundStyle(.secondary)
@@ -109,7 +148,7 @@ struct LogoSettingsView: View {
         case .trackpad:
             Text(DeckL("手指接触兼容触控板时亮起，移开时熄灭。", "Light while a finger rests on a compatible trackpad."))
                 .font(.footnote).foregroundStyle(.secondary)
-            Toggle(DeckL("接触时点击闪烁", "Blink on click while touching"), isOn: $runtime.settings.clickFlash)
+            settingToggle(DeckL("接触时点击闪烁", "Blink on click while touching"), isOn: $runtime.settings.clickFlash)
             Text(runtime.inputStatus).font(.footnote).foregroundStyle(.secondary)
         case .typing:
             Text(DeckL("只监听按键时序，不读取输入文字；安全输入期间暂停响应。", "Observe timing only, never characters. Secure Input pauses the response."))
@@ -119,6 +158,31 @@ struct LogoSettingsView: View {
                 Button(DeckL("授权或检查输入监控", "Enable or check Input Monitoring")) { runtime.retryInput() }
                 Link(DeckL("输入监控设置", "Input Monitoring settings"), destination: URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!)
             }
+        case .morse:
+            TextField(DeckL("输入一行文字，例如 SOS", "Enter one line, such as SOS"), text: $runtime.settings.morseText)
+                .textFieldStyle(.roundedBorder)
+                .labelsHidden()
+                .font(.system(size: 13))
+                .accessibilityLabel(DeckL("摩斯电码文字", "Morse message"))
+                .accessibilityIdentifier("logolight.morse-text")
+            Text(DeckL("自动循环播放。支持字母、数字和常用标点；中文转为拼音。关闭灯光或锁屏时停止。", "Loops automatically. Letters, digits and common punctuation are supported; Chinese is transliterated to pinyin. Stops when the light is off or the Mac is locked."))
+                .font(.footnote).foregroundStyle(.secondary)
+            let notation = LogoMorse.notation(runtime.settings.morseText)
+            if notation.isEmpty {
+                Text(DeckL("请输入可编码的文字；当前灯光保持熄灭。", "Enter an encodable message. The light remains off for now."))
+                    .font(.footnote).foregroundStyle(.secondary)
+            } else {
+                Text(notation).font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(DeckL("点划预览：", "Morse preview: ") + notation)
+                Text(DeckL("短闪为点，长闪为划；每轮之间留出停顿。", "Short flashes are dots, long flashes are dashes; a pause separates repeats."))
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            let skipped = LogoMorse.unsupported(runtime.settings.morseText)
+            if !skipped.isEmpty {
+                Text(DeckL("以下字符无法编码，将跳过：", "These characters cannot be encoded and will be skipped: ") + skipped)
+                    .font(.footnote).foregroundStyle(.orange)
+            }
         }
     }
 
@@ -127,11 +191,55 @@ struct LogoSettingsView: View {
                label: "\(Int((runtime.settings.dimFloor * 100).rounded()))%")
     }
     private func slider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, label: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack { Text(title); Spacer(); Text(label).monospacedDigit().foregroundStyle(.secondary) }
-            Slider(value: value, in: range).accessibilityLabel(title)
-        }
+        HStack(spacing: 12) {
+            Text(title).frame(width: 80, alignment: .leading)
+            Slider(value: value, in: range).labelsHidden()
+                .controlSize(.small).frame(maxWidth: .infinity)
+                .accessibilityLabel(title)
+            Text(label)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(width: 62, height: 24)
+                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 7))
+        }.frame(minHeight: 30)
     }
+
+    private func settingsCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10, content: content)
+            .font(.system(size: 12))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.78),
+                        in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.065), lineWidth: 0.6)
+            }
+    }
+
+    private func settingToggle(_ title: String, isOn: Binding<Bool>) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Toggle(title, isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small).fixedSize()
+        }.frame(minHeight: 26)
+    }
+
+    private func cardToggle(_ title: String, symbol: String, isOn: Binding<Bool>) -> some View {
+        HStack {
+            Label(title, systemImage: symbol).font(.system(size: 12, weight: .semibold))
+            Spacer(minLength: 10)
+            Toggle(title, isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small).fixedSize()
+        }.frame(minHeight: 24)
+    }
+
+    private func keycap(_ text: String) -> some View {
+        Text(text).font(.system(size: 10, weight: .medium, design: .monospaced))
+            .foregroundStyle(.secondary).padding(.horizontal, 7).padding(.vertical, 4)
+            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+    }
+
 }
 
 private struct LogoModeCard: View {

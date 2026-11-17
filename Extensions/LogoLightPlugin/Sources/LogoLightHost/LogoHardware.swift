@@ -68,6 +68,7 @@ struct LogoRecoveryNote: Codable, Equatable {
     var onFailure: ((String) -> Void)? { get set }
     func begin() async throws
     func output(_ level: Double, response: Double)
+    func playMorse(_ text: String?)
     func pause()
     func resume()
     func allowClosed(_ enabled: Bool, until deadline: Date?) throws
@@ -91,7 +92,18 @@ struct LogoRecoveryNote: Codable, Equatable {
     private var completedRevision = -1
     private var desired = Double.nan
     private var fadeSeconds = 0.15
-    private var powerAssertion: IOPMAssertionID = 0
+    private var powerAssertions: [IOPMAssertionID] = []
+    private var closedPowerActive = false
+    private var lastObservedClosed: Bool?
+    private var morseText: String?
+    private lazy var morseAnimator: LogoAnimator? = emitter.map { emitter in
+        LogoAnimator(emitter: emitter, isDisplayAwake: { [weak self] in
+            guard let self else { return false }
+            return self.running && !self.suspended && (!self.closed || emitter.isLidOverridden)
+        }, sleep: { seconds in
+            try await Task.sleep(for: .seconds(seconds), tolerance: .milliseconds(2))
+        })
+    }
     var onFailure: ((String) -> Void)?
 
     init(directory: URL = LogoPaths.folder) {
@@ -144,12 +156,23 @@ struct LogoRecoveryNote: Codable, Equatable {
         schedule()
     }
 
+    func playMorse(_ text: String?) {
+        guard running, !suspended else { return }
+        guard child?.isRunning == true else { end(); onFailure?(LogoProblem.recoveryPending.localizedDescription); return }
+        guard text != morseText || (text != nil && morseAnimator?.isPlaying != true) else { return }
+        morseAnimator?.pause(); morseAnimator?.stopMorse()
+        morseText = text; desired = .nan
+        guard let text else { return }
+        worker?.cancel()
+        _ = morseAnimator?.startMorse(MorseMessage(text: text, loops: true))
+    }
+
     private func schedule() {
         guard worker == nil, let emitter else { return }
         worker = Task { [self] in
             defer {
                 worker = nil
-                if running && !suspended && completedRevision != revision { schedule() }
+                if running && !suspended && morseText == nil && completedRevision != revision { schedule() }
             }
             do {
                 while running && !suspended && !Task.isCancelled {
@@ -166,6 +189,7 @@ struct LogoRecoveryNote: Codable, Equatable {
     }
 
     func pause() {
+        morseAnimator?.pause(); morseAnimator?.stopMorse(); morseText = nil
         suspended = true; worker?.cancel()
         emitter?.restore(displayAwake: false); emitter?.displayDidChange(isAwake: false)
         desired = .nan
@@ -177,36 +201,55 @@ struct LogoRecoveryNote: Codable, Equatable {
 
     func allowClosed(_ enabled: Bool, until deadline: Date?) throws {
         guard running, var note = record else { return }
-        if note.closedOverride != enabled || note.deadline != (enabled ? deadline : nil) {
-            if enabled {
+        let lidClosed = closed
+        if lastObservedClosed != lidClosed {
+            // Opening the lid invalidates the prior override. A later close needs
+            // a fresh write, after corebrightnessd has processed that close.
+            if !lidClosed { emitter?.lidDidOpen() }
+            emitter?.displayDidChange(isAwake: !lidClosed)
+            lastObservedClosed = lidClosed
+        }
+        if enabled {
+            guard child?.isRunning == true else { end(); onFailure?(LogoProblem.helperUnavailable.localizedDescription); throw LogoProblem.helperUnavailable }
+            guard let deadline, deadline > Date() else { throw LogoProblem.invalidCommand }
+            if !closedPowerActive || note.deadline != deadline {
                 // Write ownership before enabling. On disable, retain that ownership
                 // until the kernel confirms handback, so failed cleanup stays repairable.
                 note.closedOverride = true; note.deadline = deadline
                 try note.save(to: directory); record = note
+            }
+            if !closedPowerActive {
                 guard LogoLidPower.setSleepDisabled(true) else { throw LogoProblem.rejected }
-            } else {
+                for kind in [kIOPMAssertionTypePreventSystemSleep, kIOPMAssertionTypePreventUserIdleSystemSleep] {
+                    var assertion: IOPMAssertionID = 0
+                    let result = IOPMAssertionCreateWithName(kind as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                                                           "MyStatus bounded logo light session" as CFString, &assertion)
+                    guard result == kIOReturnSuccess else {
+                        powerAssertions.forEach { IOPMAssertionRelease($0) }; powerAssertions = []
+                        _ = LogoLidPower.setSleepDisabled(false)
+                        throw LogoProblem.rejected
+                    }
+                    powerAssertions.append(assertion)
+                }
+                closedPowerActive = true
+            }
+            if lidClosed && emitter?.isLidClosed == true && emitter?.isLidOverridden != true { emitter?.overrideLid() }
+        } else {
+            if emitter?.isLidOverridden == true { emitter?.endLidOverride() }
+            if closedPowerActive || note.closedOverride {
                 guard LogoLidPower.setSleepDisabled(false) else { throw LogoProblem.rejected }
+                powerAssertions.forEach { IOPMAssertionRelease($0) }; powerAssertions = []
+                closedPowerActive = false
                 note.closedOverride = false; note.deadline = nil
                 try note.save(to: directory); record = note
             }
-            if enabled && powerAssertion == 0 {
-                _ = IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
-                    IOPMAssertionLevel(kIOPMAssertionLevelOn), "MyStatus bounded logo light session" as CFString, &powerAssertion)
-            } else if !enabled && powerAssertion != 0 {
-                IOPMAssertionRelease(powerAssertion); powerAssertion = 0
-            }
-        }
-        if enabled {
-            guard child?.isRunning == true else { throw LogoProblem.helperUnavailable }
-            if closed && emitter?.isLidOverridden != true { emitter?.overrideLid() }
-        } else {
-            if emitter?.isLidOverridden == true { emitter?.endLidOverride() }
         }
     }
 
     func end() {
+        morseAnimator?.pause(); morseAnimator?.stopMorse(); morseText = nil
         running = false; suspended = true; worker?.cancel()
-        if powerAssertion != 0 { IOPMAssertionRelease(powerAssertion); powerAssertion = 0 }
+        powerAssertions.forEach { IOPMAssertionRelease($0) }; powerAssertions = []; closedPowerActive = false
         if let note = record {
             try? FileManager.default.removeItem(at: note.marker(".alive", in: directory))
             record = nil

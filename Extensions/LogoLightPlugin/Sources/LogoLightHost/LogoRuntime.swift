@@ -6,7 +6,7 @@ import StatusDeckKit
 import SwiftUI
 
 @MainActor final class LogoRuntime: ObservableObject {
-    @Published var settings: LogoPreferences { didSet { changed() } }
+    @Published var settings: LogoPreferences { didSet { changed(previous: oldValue) } }
     @Published private(set) var supported: Bool
     @Published private(set) var active = false
     @Published private(set) var connecting = false
@@ -28,7 +28,7 @@ import SwiftUI
     private var audioAttempted = false
     private var configuredInput: LogoMode?
     private var paused = false
-    private var pauseReasons: Set<String> = []
+    private var pauseReasons: Set<LogoPauseReason> = []
     private var lidPaused = false
     private var lockObservers: [NSObjectProtocol] = []
     private var stopped = false
@@ -41,11 +41,13 @@ import SwiftUI
     private var smoothedSound = 0.0
     private let started = ProcessInfo.processInfo.systemUptime
     private let observesSystemEvents: Bool
+    private let powerAllowsClosed: (() -> Bool)?
 
-    init(device: (any LogoOutputDevice)? = nil, store: UserDefaults = .standard, sound: SoundLevelSource? = nil, observesSystemEvents: Bool = true) {
+    init(device: (any LogoOutputDevice)? = nil, store: UserDefaults = .standard, sound: SoundLevelSource? = nil, observesSystemEvents: Bool = true, powerAllowsClosed: (() -> Bool)? = nil) {
         let selected = device ?? LogoHardware()
         self.device = selected; self.sound = sound ?? SystemSound.source()
         self.observesSystemEvents = observesSystemEvents
+        self.powerAllowsClosed = powerAllowsClosed
         defaults = PluginDefaults(pluginID: LogoPaths.id, store: store)
         settings = defaults.data("configuration").flatMap { try? JSONDecoder().decode(LogoPreferences.self, from: $0) }?.normalized() ?? LogoPreferences()
         supported = selected.supported
@@ -96,19 +98,21 @@ import SwiftUI
         }
     }
 
-    private func changed() {
+    private func changed(previous: LogoPreferences) {
         let normalized = settings.normalized()
         guard settings == normalized else { settings = normalized; return }
         if let bytes = try? JSONEncoder().encode(settings) { defaults.set(bytes, forKey: "configuration") }
         guard !stopped, active else { return }
-        if settings.keepClosed, closedDeadline == nil { closedDeadline = Date().addingTimeInterval(Double(settings.closedMinutes) * 60) }
+        if settings.keepClosed, closedDeadline == nil || previous.closedMinutes != settings.closedMinutes {
+            closedDeadline = Date().addingTimeInterval(Double(settings.closedMinutes) * 60)
+        }
         if !settings.keepClosed { closedDeadline = nil }
         if savedMode != settings.mode { audioAttempted = false; smoothedSound = 0 }
         syncShortcuts(); configureSources(); startTimer(); pump()
     }
 
     private func configureSources(authorizeTyping: Bool = false) {
-        guard active, !stopped, !paused, settings.enabled else { stopSources(); return }
+        guard active, !stopped, !paused, pauseReasons.isEmpty, settings.enabled else { stopSources(); return }
         if configuredInput != settings.mode || authorizeTyping {
             let available = inputs.configure(mode: settings.mode, authorize: authorizeTyping)
             configuredInput = settings.mode
@@ -144,17 +148,28 @@ import SwiftUI
         RunLoop.main.add(next, forMode: .common); timer = next
     }
 
-    private func pump() {
-        guard active, !stopped, !paused else { return }
+    func pump() {
+        guard active, !stopped else { return }
         let now = ProcessInfo.processInfo.systemUptime
         if Date().timeIntervalSince(lastBatteryRead) > 1 {
             batteryLevel = Battery.charge() ?? 0
             power = Battery.powerState(); lastBatteryRead = Date()
         }
-        let safePower = power?.isPluggedIn == true && !ProcessInfo.processInfo.isLowPowerModeEnabled &&
-            ProcessInfo.processInfo.thermalState != .serious && ProcessInfo.processInfo.thermalState != .critical
+        let safePower = powerAllowsClosed?() ?? (power?.isPluggedIn == true && !ProcessInfo.processInfo.isLowPowerModeEnabled &&
+            ProcessInfo.processInfo.thermalState != .serious && ProcessInfo.processInfo.thermalState != .critical)
         if settings.keepClosed, let deadline = closedDeadline, Date() >= deadline { settings.keepClosed = false; return }
         let allowClosed = settings.enabled && settings.keepClosed && safePower && closedDeadline != nil
+        // Screen-sleep can precede the physical lid event. Locking and switching
+        // users still pause unconditionally, even when closed-lid mode is armed.
+        let shouldPause = LogoLifecycle.pausesOutput(reasons: pauseReasons, closedSessionAllowed: allowClosed)
+        if shouldPause {
+            stopSources()
+            do { try device.allowClosed(false, until: nil) } catch { self.error = error.localizedDescription }
+            if !paused { device.pause() }
+            paused = true
+            return
+        }
+        if paused { paused = false; device.resume(); configureSources() }
         do { try device.allowClosed(allowClosed, until: allowClosed ? closedDeadline : nil) }
         catch { self.error = error.localizedDescription; return }
         if device.closed && !allowClosed {
@@ -162,6 +177,13 @@ import SwiftUI
             return
         }
         if lidPaused { lidPaused = false; device.resume(); configureSources() }
+        if settings.enabled && settings.mode == .morse {
+            let text = LogoMorse.transmittedText(settings.morseText)
+            device.playMorse(MorseCode.canSend(text) ? text : nil)
+            if !MorseCode.canSend(text) { device.output(0, response: 0.04) }
+            return
+        }
+        device.playMorse(nil)
         if audioStarted {
             let next = LogoPreferences.clamp(sound?.loudness ?? 0)
             let mix = min(1, 0.05 / settings.musicResponse)
@@ -192,41 +214,40 @@ import SwiftUI
 
     private func observeLifecycle() {
         let center = NSWorkspace.shared.notificationCenter
-        for name in [NSWorkspace.willSleepNotification, NSWorkspace.sessionDidResignActiveNotification] {
+        for (name, reason) in [(NSWorkspace.willSleepNotification, LogoPauseReason.systemSleep),
+                               (NSWorkspace.sessionDidResignActiveNotification, .sessionInactive)] {
             workspaceObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.setPaused(true, reason: name.rawValue) }
+                MainActor.assumeIsolated { self?.setPaused(true, reason: reason) }
             })
         }
-        for name in [NSWorkspace.didWakeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
+        for (name, reason) in [(NSWorkspace.didWakeNotification, LogoPauseReason.systemSleep),
+                               (NSWorkspace.sessionDidBecomeActiveNotification, .sessionInactive)] {
             workspaceObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    let reason = name == NSWorkspace.didWakeNotification ? NSWorkspace.willSleepNotification.rawValue : NSWorkspace.sessionDidResignActiveNotification.rawValue
                     self?.setPaused(false, reason: reason)
                 }
             })
         }
         workspaceObservers.append(center.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self else { return }
-                if !self.settings.keepClosed || !self.device.closed { self.setPaused(true, reason: "screen") }
+                self?.setPaused(true, reason: .screenSleep)
             }
         })
         workspaceObservers.append(center.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.setPaused(false, reason: "screen") }
+            MainActor.assumeIsolated { self?.setPaused(false, reason: .screenSleep) }
         })
         for (name, value) in [("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)] {
             lockObservers.append(DistributedNotificationCenter.default().addObserver(forName: .init(name), object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.setPaused(value, reason: "lock") }
+                MainActor.assumeIsolated { self?.setPaused(value, reason: .locked) }
             })
         }
     }
 
-    private func setPaused(_ value: Bool, reason: String) {
+    func setPaused(_ value: Bool, reason: LogoPauseReason) {
         if value { pauseReasons.insert(reason) } else { pauseReasons.remove(reason) }
-        paused = !pauseReasons.isEmpty
-        if paused {
-            stopSources(); try? device.allowClosed(false, until: nil); device.pause()
-        } else { device.resume(); configureSources(); pump() }
+        if !pauseReasons.isEmpty { stopSources() }
+        pump()
+        if !paused { configureSources() }
     }
 
     func stop() {
@@ -241,7 +262,7 @@ import SwiftUI
 
 @MainActor final class LogoPlugin: DeckPlugin {
     let manifest = PluginManifest(id: LogoPaths.id, name: "标志灯光", summary: "Apple 标志亮度、呼吸、电池、音乐、编程状态与输入互动。",
-                                  symbol: "lightbulb", version: "1.0.1", category: .tools, enabledByDefault: false, sortOrder: 400)
+                                  symbol: "lightbulb", version: "1.0.2", category: .tools, enabledByDefault: false, sortOrder: 400)
     private(set) var runtime: LogoRuntime?
     func activate(host: any DeckHost) {
         guard !host.isDryRun, runtime == nil else { return }

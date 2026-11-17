@@ -1,10 +1,10 @@
 {
   "id": "com.statusdeck.logolight",
   "name": "标志灯光",
-  "summary": "插件 5 · 独立调节 Apple 标志亮度，支持呼吸、电池、音乐、编程状态与输入互动。",
+  "summary": "插件 5 · 独立调节 Apple 标志亮度，支持呼吸、电池、音乐、编程状态、输入互动与循环摩斯电码。",
   "symbol": "lightbulb",
-  "version": "1.0.1",
-  "adapterRevision": 2,
+  "version": "1.0.2",
+  "adapterRevision": 3,
   "category": "tools",
   "sortOrder": 400,
   "apiVersion": 2,

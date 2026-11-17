@@ -7,6 +7,35 @@ import Testing
 @testable import LogoLightHost
 
 @Suite struct LogoBehaviorTests {
+    @Test func legacySettingsKeepTheirValuesWhenMorseIsAdded() throws {
+        var p = LogoPreferences(); p.mode = .music; p.brightness = 0.31; p.musicGain = 1.7; p.keepClosed = true
+        var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(p)) as? [String: Any])
+        json.removeValue(forKey: "morseText")
+        let decoded = try JSONDecoder().decode(LogoPreferences.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(decoded.mode == .music && decoded.brightness == 0.31 && decoded.musicGain == 1.7)
+        #expect(decoded.keepClosed)
+        #expect(decoded.morseText == "SOS")
+    }
+
+    @Test func morsePreviewMatchesTheTransmittedTextAndNormalizesOneLine() {
+        #expect(LogoMorse.notation("sos") == "... --- ...")
+        #expect(LogoMorse.transmittedText("你好") == "NI HAO")
+        #expect(LogoMorse.notation("你好") == MorseCode.notation("NI HAO"))
+        #expect(LogoMorse.notation("🙂").isEmpty)
+        #expect(LogoMorse.unsupported("SOS🙂") == "🙂")
+        var p = LogoPreferences(); p.morseText = "HELLO\nWORLD"
+        #expect(p.normalized().morseText == "HELLO WORLD")
+        p.morseText = String(repeating: "A", count: 500)
+        #expect(p.normalized().morseText.count == MorseCode.maxLength)
+    }
+
+    @Test func lockingAndUserSwitchingWinOverClosedLidContinuation() {
+        for reason in [LogoPauseReason.locked, .sessionInactive, .systemSleep] {
+            #expect(LogoLifecycle.pausesOutput(reasons: [reason], closedSessionAllowed: true))
+        }
+        #expect(!LogoLifecycle.pausesOutput(reasons: [.screenSleep], closedSessionAllowed: true))
+        #expect(LogoLifecycle.pausesOutput(reasons: [.screenSleep], closedSessionAllowed: false))
+    }
     @Test func powerOffWinsOverEverySignal() {
         var p = LogoPreferences(); p.enabled = false
         var signal = LogoSignals(); signal.charging = true; signal.pluggedIn = true
@@ -104,11 +133,15 @@ import Testing
     var onFailure: ((String) -> Void)?
     var started = 0; var stopped = 0
     var levels: [Double] = []
+    var pauses = 0; var resumes = 0
+    var closedRequests: [Bool] = []
+    var morse: String?
     func begin() async throws { started += 1 }
     func output(_ level: Double, response: Double) { levels.append(level) }
-    func pause() {}
-    func resume() {}
-    func allowClosed(_ enabled: Bool, until deadline: Date?) throws {}
+    func playMorse(_ text: String?) { morse = text }
+    func pause() { pauses += 1; morse = nil }
+    func resume() { resumes += 1 }
+    func allowClosed(_ enabled: Bool, until deadline: Date?) throws { closedRequests.append(enabled) }
     func end() { stopped += 1 }
     func recover() async throws { hasRecovery = false }
 }
@@ -121,6 +154,39 @@ import Testing
 }
 
 @MainActor @Suite struct LogoPluginContractTests {
+    @Test func screenSleepBeforeLidEventKeepsLoopButLockAlwaysStopsIt() async {
+        let domain = "logo.tests." + UUID().uuidString
+        let store = UserDefaults(suiteName: domain)!
+        defer { store.removePersistentDomain(forName: domain) }
+        let device = FixtureDevice(), host = FixtureHost(); host.isDryRun = false
+        var safePower = true
+        let runtime = LogoRuntime(device: device, store: store, observesSystemEvents: false, powerAllowsClosed: { safePower })
+        runtime.settings.keepClosed = true; runtime.settings.mode = .morse
+        runtime.start(host: host)
+        for _ in 0..<100 where !runtime.active { await Task.yield() }
+        #expect(device.morse == "SOS")
+        runtime.setPaused(true, reason: .screenSleep)
+        device.closed = true; runtime.pump()
+        #expect(device.pauses == 0 && device.closedRequests.last == true)
+        runtime.setPaused(true, reason: .locked)
+        #expect(device.pauses == 1 && device.closedRequests.last == false && device.morse == nil)
+        runtime.setPaused(true, reason: .sessionInactive)
+        runtime.setPaused(false, reason: .locked)
+        #expect(device.resumes == 0)
+        runtime.setPaused(false, reason: .sessionInactive)
+        #expect(device.morse == "SOS" && device.resumes == 1)
+        safePower = false; runtime.pump()
+        #expect(device.closedRequests.last == false && device.morse == nil)
+        safePower = true; runtime.pump()
+        #expect(device.morse == "SOS")
+        runtime.settings.morseText = ""
+        #expect(device.morse == nil && device.levels.last == 0)
+        runtime.settings.morseText = "HI"
+        #expect(device.morse == "HI")
+        runtime.settings.enabled = false
+        #expect(device.morse == nil)
+        runtime.stop()
+    }
     @Test func verifierHasSettingsButCreatesNoRuntimeOrStandaloneSurface() {
         let plugin = LogoPlugin(), host = FixtureHost()
         plugin.activate(host: host)

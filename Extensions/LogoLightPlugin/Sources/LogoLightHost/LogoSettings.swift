@@ -1,8 +1,9 @@
 import Foundation
+import LogoLightCore
 import StatusDeckKit
 
 enum LogoMode: String, Codable, CaseIterable, Identifiable {
-    case steady, breathing, battery, music, agents, trackpad, typing
+    case steady, breathing, battery, music, agents, trackpad, typing, morse
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -13,6 +14,7 @@ enum LogoMode: String, Codable, CaseIterable, Identifiable {
         case .agents: return DeckL("AI 编程状态", "AI coding status")
         case .trackpad: return DeckL("触控板互动", "Trackpad")
         case .typing: return DeckL("打字互动", "Typing")
+        case .morse: return DeckL("摩斯电码", "Morse code")
         }
     }
 
@@ -25,6 +27,7 @@ enum LogoMode: String, Codable, CaseIterable, Identifiable {
         case .agents: return "terminal"
         case .trackpad: return "hand.point.up.left"
         case .typing: return "keyboard"
+        case .morse: return "ellipsis"
         }
     }
 
@@ -37,6 +40,7 @@ enum LogoMode: String, Codable, CaseIterable, Identifiable {
         case .agents: return DeckL("跟随 CodeIsland 会话", "Follow CodeIsland sessions")
         case .trackpad: return DeckL("手指接触时亮起", "Light on finger contact")
         case .typing: return DeckL("随键盘输入亮起", "Light while typing")
+        case .morse: return DeckL("把一行文字循环闪烁", "Loop a message in light")
         }
     }
 }
@@ -54,6 +58,32 @@ struct LogoPreferences: Codable, Equatable {
     var keepClosed = false
     var closedMinutes = 10
     var shortcuts = false
+    var morseText = "SOS"
+
+    init() {}
+
+    // New modes must not discard the user's brightness, music, or lid settings.
+    private enum CodingKeys: String, CodingKey {
+        case enabled, mode, brightness, cycleSeconds, dimFloor, musicGain, musicResponse
+        case darkBetweenBeats, clickFlash, keepClosed, closedMinutes, shortcuts, morseText
+    }
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? enabled
+        mode = try c.decodeIfPresent(LogoMode.self, forKey: .mode) ?? mode
+        brightness = try c.decodeIfPresent(Double.self, forKey: .brightness) ?? brightness
+        cycleSeconds = try c.decodeIfPresent(Double.self, forKey: .cycleSeconds) ?? cycleSeconds
+        dimFloor = try c.decodeIfPresent(Double.self, forKey: .dimFloor) ?? dimFloor
+        musicGain = try c.decodeIfPresent(Double.self, forKey: .musicGain) ?? musicGain
+        musicResponse = try c.decodeIfPresent(Double.self, forKey: .musicResponse) ?? musicResponse
+        darkBetweenBeats = try c.decodeIfPresent(Bool.self, forKey: .darkBetweenBeats) ?? darkBetweenBeats
+        clickFlash = try c.decodeIfPresent(Bool.self, forKey: .clickFlash) ?? clickFlash
+        keepClosed = try c.decodeIfPresent(Bool.self, forKey: .keepClosed) ?? keepClosed
+        closedMinutes = try c.decodeIfPresent(Int.self, forKey: .closedMinutes) ?? closedMinutes
+        shortcuts = try c.decodeIfPresent(Bool.self, forKey: .shortcuts) ?? shortcuts
+        morseText = try c.decodeIfPresent(String.self, forKey: .morseText) ?? morseText
+    }
 
     func normalized() -> Self {
         var value = self
@@ -63,6 +93,7 @@ struct LogoPreferences: Codable, Equatable {
         value.musicGain = Self.bound(musicGain, 0.25...3, 1)
         value.musicResponse = Self.bound(musicResponse, 0.05...0.5, 0.12)
         value.closedMinutes = min(30, max(1, closedMinutes))
+        value.morseText = String(morseText.components(separatedBy: .newlines).joined(separator: " ").prefix(MorseCode.maxLength))
         return value
     }
     static func clamp(_ x: Double) -> Double { bound(x, 0...1, 0) }
@@ -107,8 +138,31 @@ struct LogoSignals {
             }
         case .trackpad: result = contacts > 0 && !(p.clickFlash && clicked) ? p.brightness : 0
         case .typing: result = recentlyTyped ? p.brightness : 0
+        case .morse: result = 0 // The native Morse animator owns timing and output.
         }
         return LogoPreferences.clamp(result)
+    }
+}
+
+enum LogoMorse {
+    static func transmittedText(_ text: String) -> String {
+        (text.applyingTransform(.toLatin, reverse: false) ?? text)
+            .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .uppercased()
+    }
+    static func notation(_ text: String) -> String { MorseCode.notation(transmittedText(text)) }
+    static func unsupported(_ text: String) -> String {
+        String(Set(transmittedText(text).filter { !$0.isWhitespace && MorseCode.table[$0] == nil }).sorted())
+    }
+}
+
+enum LogoPauseReason: Hashable { case systemSleep, sessionInactive, screenSleep, locked }
+
+enum LogoLifecycle {
+    static func pausesOutput(reasons: Set<LogoPauseReason>, closedSessionAllowed: Bool) -> Bool {
+        // Locking and switching users always stop the light, including closed-lid mode.
+        !reasons.isDisjoint(with: [.systemSleep, .sessionInactive, .locked]) ||
+            (reasons.contains(.screenSleep) && !closedSessionAllowed)
     }
 }
 
