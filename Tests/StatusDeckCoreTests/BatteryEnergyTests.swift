@@ -87,4 +87,31 @@ import Testing
         let unavailable = BatteryReader.parse(registry: ["PowerTelemetryData": ["SystemLoad": -1]], into: BatteryStats(), adapter: nil)
         #expect(unavailable.systemLoadWatts == nil)
     }
+
+    @Test func timeBadgeSwitchesBetweenRuntimeAndChargeTimeAndHidesWhenFull() {
+        var b = BatteryStats()
+        b.isPresent = true; b.percent = 60; b.minutesRemaining = 125
+        #expect(BatteryTimeEstimate(b)?.minutes == 125)
+        #expect(BatteryTimeEstimate(b)?.charging == false)
+        b.isExternalPowerConnected = true
+        #expect(BatteryTimeEstimate(b) == nil) // charging paused: no false runtime
+        b.isCharging = true; b.minutesRemaining = 40
+        #expect(BatteryTimeEstimate(b)?.charging == true)
+        b.isFullyCharged = true
+        #expect(BatteryTimeEstimate(b) == nil)
+        b.isFullyCharged = false; b.percent = 100
+        #expect(BatteryTimeEstimate(b) == nil)
+        b.percent = 60; b.minutesRemaining = nil
+        #expect(BatteryTimeEstimate(b) == nil)
+    }
+
+    @Test func chargingUsesTimeToFullAndDischargingUsesTimeToEmpty() {
+        let source: [String: Any] = ["Time to Full Charge": 44, "Time to Empty": 180]
+        let charging = BatteryReader.parse(registry: ["IsCharging": true, "TimeRemaining": 99],
+                                           into: BatteryStats(), adapter: nil, powerSource: source)
+        #expect(charging.minutesRemaining == 44)
+        let discharging = BatteryReader.parse(registry: ["IsCharging": false, "TimeRemaining": 99],
+                                              into: BatteryStats(), adapter: nil, powerSource: source)
+        #expect(discharging.minutesRemaining == 180)
+    }
 }

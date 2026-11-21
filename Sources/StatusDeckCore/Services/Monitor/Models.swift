@@ -218,6 +218,9 @@ struct BatteryStats: Equatable, Sendable {
     var nominalVolts: Double?
     var isLowPowerMode = false
     var energyCalibrationFactor = 1.0
+    var energyCalibrationEnabled = true
+    var energyCalibrationMethod: BatteryCalibrationMethod = .global
+    var appEnergyCalibration: [String: Double] = [:]
     var energyCalibrationDate: Date?
 
     var measuredPercent: Double {

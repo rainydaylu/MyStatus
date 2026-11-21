@@ -848,6 +848,10 @@ final class BatteryPlugin: BuiltInPlugin {
         services.store.sampler.removeInterest(owner: manifest.id)
     }
 
+    override var settingsView: AnyView? {
+        AnyView(BatteryCalibrationSettings(store: services.store))
+    }
+
     override var sections: [DeckSection] {
         let store = services.store
         // A Mac without a battery has nothing to show here.
@@ -891,32 +895,10 @@ private struct BatteryDetail: View {
         let battery = store.snapshot.battery
         VStack(spacing: DeckTheme.cardSpacing) {
             DeckCard {
-                VStack(spacing: 6) {
                 PanelDrilldownLink(id: "battery.details", title: DeckL("电池详情", "Battery details")) {
-                    HStack(spacing: 12) {
-                        let charge = Double(battery.percent) / 100
-                        DeckRing(value: charge, color: batteryColor(battery, theme: theme) ?? theme.accent) {
-                            DeckRingPercent(charge, caption: DeckL("电量"))
-                        }
-                        .frame(width: 98, height: 98)
-                        .frame(maxWidth: .infinity)
-                        DeckRing(value: battery.health ?? 0, color: theme.magenta) {
-                            if let health = battery.health {
-                                DeckRingPercent(health, caption: DeckL("电池健康"))
-                            } else {
-                                Text("—").foregroundStyle(theme.secondary)
-                            }
-                        }
-                        .frame(width: 98, height: 98)
-                        .frame(maxWidth: .infinity)
-                    }
+                    BatteryChargeSummary(battery: battery)
                 } detail: {
                     BatteryDiagnostics(store: store)
-                }
-                DeckInfoRow(battery.statusText, battery.minutesRemaining.map { minutes in
-                    (battery.isCharging ? DeckL("充满还需", "Time until full") : DeckL("剩余", "Time remaining"))
-                        + " " + Format.duration(TimeInterval(minutes) * 60)
-                } ?? "")
                 }
             }
             BatteryPowerFlowCard(snapshot: store.snapshot)

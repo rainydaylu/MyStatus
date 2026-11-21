@@ -61,7 +61,7 @@ import Testing
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let day = Date(timeIntervalSince1970: 1_704_067_200) // 2024-01-01
-        let store = BatteryLearningStore(folder: dir, calendar: calendar)
+        let store = BatteryLearningStore(folder: dir, calendar: calendar, enabled: true)
         for i in 0...60 {
             store.observe(pack(percent: 90 - Double(i) / 60 * 11), at: day.addingTimeInterval(Double(i) * 30))
         }
@@ -74,9 +74,67 @@ import Testing
         #expect(store.model.fittedAt == fittedAt)
         store.observe(pack(percent: 79, external: true), at: day.addingTimeInterval(9 * 86_400))
         #expect(abs(store.model.factor - 1.1) < 0.001)
-        let again = BatteryLearningStore(folder: dir, calendar: calendar)
+        let again = BatteryLearningStore(folder: dir, calendar: calendar, enabled: true)
         #expect(again.model.factor == store.model.factor)
         let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
         #expect(files.contains { $0.lastPathComponent == "battery-2024-01-01.csv" })
+    }
+
+    @Test func recordingUsesOneMinuteAndProgressIncludesBufferedSamples() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = BatteryLearningStore(folder: dir, enabled: true)
+        let start = Date(timeIntervalSince1970: 1_704_067_200)
+        store.observe(pack(percent: 90), at: start)
+        store.observe(pack(percent: 89.9), at: start.addingTimeInterval(30))
+        #expect(store.status(at: start).recordCount == 1)
+        for i in 1...3 {
+            store.observe(pack(percent: 90 - Double(i) * 0.4), at: start.addingTimeInterval(Double(i) * 60))
+        }
+        let status = store.status(at: start.addingTimeInterval(180))
+        #expect(status.recordCount == 4)
+        #expect(status.evidence.seconds == 180)
+        #expect(abs(status.evidence.actual - 1.2) < 0.001)
+        #expect(abs(status.evidence.progress - 0.2) < 0.001)
+        #expect(status.lastRecordedAt == start.addingTimeInterval(180))
+        let file = try #require(FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil).first { $0.pathExtension == "csv" })
+        #expect(try String(contentsOf: file, encoding: .utf8).split(separator: "\n").count == 2) // buffered, not extra disk writes
+    }
+
+    @Test func disablingStopsRecordingAndFittingButPreservesTheModelAndHistory() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = BatteryLearningStore(folder: dir, enabled: true)
+        let day = Date(timeIntervalSince1970: 1_704_067_200)
+        for i in 0...30 {
+            store.observe(pack(percent: 90 - Double(i) / 30 * 11), at: day.addingTimeInterval(Double(i) * 60))
+        }
+        let nextDay = day.addingTimeInterval(86_400)
+        store.observe(pack(percent: 79, external: true), at: nextDay)
+        #expect(abs(store.appliedFactor - 1.1) < 0.001)
+        store.setEnabled(false)
+        let before = store.status(at: nextDay)
+        store.observe(pack(percent: 70), at: nextDay.addingTimeInterval(86_400))
+        let after = store.status(at: nextDay)
+        #expect(after == before)
+        #expect(store.model.fittedAt == nextDay)
+        #expect(store.appliedFactor == 1)
+        var battery = pack(percent: 70)
+        battery.energyCalibrationFactor = 1.1
+        battery.energyCalibrationEnabled = false
+        #expect(AppEnergyEntry.percentPerHour(watts: 5, battery: battery) == 5)
+        store.setEnabled(true)
+        #expect(abs(store.appliedFactor - 1.1) < 0.001)
+        store.observe(pack(percent: 78, external: true), at: nextDay.addingTimeInterval(120))
+        #expect(store.status(at: nextDay).recordCount == before.recordCount + 1)
+    }
+
+    @Test func calibrationPreferenceDefaultsOnAndHonorsAnExplicitOff() throws {
+        let name = "BatteryCalibrationTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        #expect(BatteryCalibrationPreference.isEnabled(in: defaults))
+        defaults.set(false, forKey: BatteryCalibrationPreference.key)
+        #expect(!BatteryCalibrationPreference.isEnabled(in: defaults))
     }
 }

@@ -9,13 +9,14 @@ struct AppEnergyEntry: Identifiable, Equatable, Sendable, Codable {
     let watts: Double
 
     func percentPerHour(battery: BatteryStats) -> Double? {
-        Self.percentPerHour(watts: watts, battery: battery)
+        Self.percentPerHour(watts: watts, battery: battery,
+                            factor: battery.energyCalibrationMethod == .perApp ? battery.appEnergyCalibration[bundlePath] ?? 1 : nil)
     }
 
-    static func percentPerHour(watts: Double?, battery: BatteryStats) -> Double? {
+    static func percentPerHour(watts: Double?, battery: BatteryStats, factor override: Double? = nil) -> Double? {
         guard let watts, watts.isFinite, watts >= 0, let capacity = battery.estimatedFullChargeWattHours else { return nil }
-        let factor = battery.energyCalibrationFactor
-        let validFactor = factor.isFinite && (0.5...1.5).contains(factor) ? factor : 1
+        let factor = override ?? (battery.energyCalibrationMethod == .global ? battery.energyCalibrationFactor : 1)
+        let validFactor = battery.energyCalibrationEnabled && factor.isFinite && (0.5...1.5).contains(factor) ? factor : 1
         return watts / capacity * 100 * validFactor
     }
 }
@@ -29,6 +30,19 @@ struct AppEnergyStats: Equatable, Sendable, Codable {
     /// All attributable apps, including those below the displayed top five.
     var appWatts: Double?
     var sampledAt: Date?
+    /// Needed to calibrate the total consistently, including apps outside the top five.
+    var allEntries: [AppEnergyEntry]?
+
+    func percentPerHour(battery: BatteryStats) -> Double? {
+        guard battery.energyCalibrationEnabled, battery.energyCalibrationMethod == .perApp else {
+            return AppEnergyEntry.percentPerHour(watts: appWatts, battery: battery)
+        }
+        guard let appWatts else { return nil }
+        let measured = allEntries ?? entries
+        let remaining = max(0, appWatts - measured.reduce(0) { $0 + $1.watts })
+        guard let base = AppEnergyEntry.percentPerHour(watts: remaining, battery: battery) else { return nil }
+        return base + measured.reduce(0) { $0 + ($1.percentPerHour(battery: battery) ?? 0) }
+    }
 }
 
 /// One reading per resource coalition, never one copy of the same energy for
@@ -108,7 +122,7 @@ struct AppEnergyWindow {
         let appTotals = totals.filter { !$0.key.isEmpty }
         let appWatts = appTotals.isEmpty ? nil : appTotals.values.reduce(0) { $0 + $1.joules } / seconds
         return AppEnergyStats(state: .ready, entries: Array(entries.prefix(5)), seconds: seconds,
-                              chipWatts: chipWatts > 0 ? chipWatts : nil, appWatts: appWatts)
+                              chipWatts: chipWatts > 0 ? chipWatts : nil, appWatts: appWatts, allEntries: entries)
     }
 }
 

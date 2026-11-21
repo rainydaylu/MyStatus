@@ -368,6 +368,7 @@ final class SnapshotRenderer {
         batterySnapshot.appEnergy = AppEnergyResultCache.standard.load() ?? batteryEnergy.read()
         for (scheme, label) in [(ColorScheme.dark, "dark"), (ColorScheme.light, "light")] {
             render(VStack(spacing: DeckTheme.cardSpacing) {
+                DeckCard { BatteryChargeSummary(battery: batterySnapshot.battery) }
                 BatteryPowerFlowCard(snapshot: batterySnapshot)
                 BatteryHardwareEnergyCard(snapshot: batterySnapshot)
                 BatteryAppEnergyCard(energy: batterySnapshot.appEnergy, battery: batterySnapshot.battery)

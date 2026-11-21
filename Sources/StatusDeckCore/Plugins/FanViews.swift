@@ -10,7 +10,7 @@ struct FanControls: View {
 
     var body: some View {
         let ids = Set(controller.targets.map(\.id) + readings.map(\.id)).sorted()
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: detailed ? 10 : 7) {
             DeckTitle(detailed ? DeckL("风扇控制", "Fan control") : DeckL("风扇"))
             if !controller.authorization.isAuthorized {
                 Text(DeckL("首次调速时会申请管理员授权，与低电量模式共用。", "The first adjustment asks for administrator approval, shared with Low Power Mode."))
@@ -19,21 +19,24 @@ struct FanControls: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             ForEach(ids, id: \.self) { id in
+                if id != ids.first { Divider().padding(.vertical, detailed ? 4 : 2) }
                 let reading = readings.first { $0.id == id }
                 if let fan = controller.targets.first(where: { $0.id == id }), let range = fan.bounds {
-                    FanSpeedRow(fan: fan, range: range, controller: controller, detailed: detailed) {
+                    FanSpeedRow(fan: fan, range: range, controller: controller, compact: !detailed) {
                         historyLabel(id: id) { title in
-                            DeckInfoRow(title, fan.currentSpeed.map { "\($0) RPM" } ?? rpmText(reading?.rpm))
+                            FanReadout(title: title, rpm: fan.currentSpeed.map(Double.init) ?? reading?.rpm,
+                                       fraction: Double(fan.currentSpeed ?? 0) / Double(range.upperBound),
+                                       mode: fan.isManual ? DeckL("固定转速", "Fixed speed") : DeckL("系统自动", "System Auto"), compact: !detailed)
                         }
                     }
                 } else if let reading {
                     historyLabel(id: id) { title in
-                        DeckMeterRow(title, value: reading.fraction, text: rpmText(reading.rpm))
+                        FanReadout(title: title, rpm: reading.rpm, fraction: reading.fraction, mode: DeckL("实时转速", "Live speed"), compact: !detailed)
                     }
                 } else {
                     let rpm = controller.targets.first { $0.id == id }?.currentSpeed
                     historyLabel(id: id) { title in
-                        DeckInfoRow(title, rpm.map { "\($0) RPM" } ?? "—")
+                        FanReadout(title: title, rpm: rpm.map(Double.init), fraction: 0, mode: DeckL("实时转速", "Live speed"), compact: !detailed)
                     }
                 }
             }
@@ -89,9 +92,10 @@ private struct FanSpeedRow<Label: View>: View {
     let fan: FanTarget
     let range: ClosedRange<Int>
     @ObservedObject var controller: FanController
-    let detailed: Bool
+    let compact: Bool
     @ViewBuilder let label: () -> Label
     @State private var draft: Double?
+    @State private var isEditing = false
     @Environment(\.deckTheme) private var theme
 
     private var target: Double {
@@ -99,49 +103,79 @@ private struct FanSpeedRow<Label: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: compact ? 5 : 10) {
             label()
-            if detailed {
-                DeckInfoRow(DeckL("控制方式", "Control mode"), fan.isManual ? DeckL("固定转速", "Fixed speed") : DeckL("系统自动", "System Auto"))
-                if fan.isManual {
-                    DeckInfoRow(DeckL("已设目标", "Current target"), "\(fan.targetSpeed) RPM")
-                }
+            HStack {
+                Text(DeckL("目标转速", "Target speed")).font(.system(size: compact ? 10 : 11)).foregroundStyle(theme.secondary)
+                Spacer()
+                Text("\(Int((draft ?? target).rounded())) RPM")
+                    .font(.system(size: compact ? 11 : 12, weight: .medium)).monospacedDigit().foregroundStyle(theme.primary)
             }
             Slider(value: Binding(get: { draft ?? target }, set: { draft = $0 }),
-                   in: Double(range.lowerBound)...Double(range.upperBound)) {
+                   in: Double(range.lowerBound)...Double(range.upperBound), onEditingChanged: { isEditing = $0 }) {
                 Text(DeckLF("风扇 %ld 目标转速", "Fan %ld target speed", fan.id + 1))
             }
             .labelsHidden()
-            if detailed {
-                HStack {
-                    Text("\(range.lowerBound) RPM")
-                    Spacer()
-                    Text("\(range.upperBound) RPM")
-                }
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(theme.secondary)
-                HStack {
-                    Button(DeckL("最低", "Min")) { draft = Double(range.lowerBound) }
-                    Button("50%") { draft = Double(range.lowerBound + (range.upperBound - range.lowerBound) / 2) }
-                    Button(DeckL("最高", "Max")) { draft = Double(range.upperBound) }
-                }
-                .controlSize(.small)
-            }
+            .tint(theme.accent)
+            .controlSize(compact ? .small : .regular)
             HStack {
-                Button(DeckL("恢复自动", "Return to Auto")) {
-                    controller.automatic(fan)
-                    draft = nil
-                }
+                Text("\(range.lowerBound) RPM")
                 Spacer()
-                Button(DeckLF("应用 %ld RPM", "Apply %ld RPM", Int((draft ?? target).rounded()))) {
-                    controller.apply(fan, rpm: Int((draft ?? target).rounded()))
-                    draft = nil
-                }
-                .disabled(draft == nil)
+                Text("\(range.upperBound) RPM")
             }
-            .controlSize(.small)
+            .font(.system(size: 9).monospacedDigit()).foregroundStyle(theme.secondary)
+            Button {
+                draft = nil
+                controller.automatic(fan)
+            } label: {
+                SwiftUI.Label(DeckL("恢复自动", "Return to Auto"), systemImage: "arrow.triangle.2.circlepath")
+                    .font(.system(size: compact ? 11 : 13, weight: .medium))
+                    .frame(maxWidth: .infinity).padding(.vertical, compact ? 1 : 5)
+            }
+            .buttonStyle(.bordered).controlSize(compact ? .regular : .large)
+            .accessibilityIdentifier("fan.\(fan.id).automatic")
         }
         .disabled(controller.isBusy)
-        .padding(.vertical, 4)
+        .padding(.vertical, compact ? 1 : 4)
+        .task(id: isEditing ? nil : draft) {
+            guard let value = draft, !isEditing else { return }
+            do {
+                // Coalesce clicks/keyboard changes; a drag commits on release.
+                try await Task.sleep(for: .milliseconds(150))
+                while controller.isBusy { try await Task.sleep(for: .milliseconds(100)) }
+                guard !Task.isCancelled, draft == value, !isEditing else { return }
+                controller.apply(fan, rpm: Int(value.rounded()))
+                while controller.isBusy { try await Task.sleep(for: .milliseconds(100)) }
+                guard !Task.isCancelled, draft == value else { return }
+                draft = nil
+            } catch { /* A newer gesture or leaving the view cancels the pending change. */ }
+        }
+    }
+}
+
+private struct FanReadout: View {
+    let title: String
+    let rpm: Double?
+    let fraction: Double
+    let mode: String
+    let compact: Bool
+    @Environment(\.deckTheme) private var theme
+
+    var body: some View {
+        HStack(spacing: compact ? 7 : 10) {
+            DeckRing(value: fraction, color: theme.accent, lineWidth: compact ? 2 : 3) {
+                Image(systemName: "fanblades.fill").font(.system(size: compact ? 14 : 20)).foregroundStyle(theme.accent)
+            }.frame(width: compact ? 28 : 44, height: compact ? 28 : 44)
+            VStack(alignment: .leading, spacing: compact ? 2 : 4) {
+                Text(title).font(.system(size: compact ? 11 : 12, weight: .medium)).foregroundStyle(theme.primary)
+                Text(mode).font(.system(size: compact ? 9 : 10)).foregroundStyle(theme.secondary)
+            }
+            Spacer(minLength: 5)
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(rpm.map { "\(Int($0.rounded()))" } ?? "—")
+                    .font(.system(size: compact ? 15 : 23, weight: .medium, design: .rounded)).monospacedDigit().foregroundStyle(theme.primary)
+                Text("RPM").font(.system(size: 9)).foregroundStyle(theme.secondary)
+            }
+        }.padding(.vertical, 2)
     }
 }

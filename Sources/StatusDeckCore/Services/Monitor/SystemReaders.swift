@@ -469,7 +469,10 @@ struct BatteryReader {
         stats.cellVolts = cellMillivolts.map { $0 > 0 && $0 < 6_000 ? Double($0) / 1_000 : nil }
 
         // 65535 is the registry's "still calculating" marker.
-        if let minutes = registry["TimeRemaining"] as? Int, minutes > 0, minutes < 65535 {
+        let timeKey = stats.isCharging ? kIOPSTimeToFullChargeKey : kIOPSTimeToEmptyKey
+        let registryTimeKey = stats.isCharging ? "AvgTimeToFull" : "AvgTimeToEmpty"
+        if let minutes = [powerSource?[timeKey], registry[registryTimeKey], registry["TimeRemaining"]]
+            .lazy.compactMap({ ($0 as? NSNumber)?.intValue }).first(where: { $0 > 0 && $0 < 65535 }) {
             stats.minutesRemaining = minutes
         }
         if let design = stats.designCapacity, let full = stats.fullChargeCapacity {

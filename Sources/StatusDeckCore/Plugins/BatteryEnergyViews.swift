@@ -198,7 +198,7 @@ struct BatteryAppEnergyCard: View {
                     Text(DeckL("当前未测得 App 能耗。", "No app energy use measured in this interval."))
                         .font(.system(size: 11)).foregroundStyle(theme.secondary)
                 }
-                ForEach(energy.entries) { entry in
+                ForEach(displayedEntries) { entry in
                     HStack(spacing: 8) {
                         Image(nsImage: DeckAppIcon.image(forPath: entry.bundlePath)).resizable().frame(width: 22, height: 22)
                         VStack(alignment: .leading, spacing: 4) {
@@ -210,7 +210,7 @@ struct BatteryAppEnergyCard: View {
                             GeometryReader { proxy in
                                 Capsule().fill(theme.inset)
                                 Capsule().fill(theme.accent.opacity(0.7))
-                                    .frame(width: proxy.size.width * min(1, entry.watts / max(0.001, energy.entries.first?.watts ?? 1)))
+                                    .frame(width: proxy.size.width * min(1, (entry.percentPerHour(battery: battery) ?? entry.watts) / max(0.001, displayedEntries.first?.percentPerHour(battery: battery) ?? displayedEntries.first?.watts ?? 1)))
                             }.frame(height: 3)
                         }
                     }
@@ -224,9 +224,13 @@ struct BatteryAppEnergyCard: View {
                 Text(DeckL("含辅助进程的 CPU / GPU / 神经引擎能耗；不含屏幕、风扇等共享耗电。接电时为电池等效估算。", "CPU / GPU / Neural Engine energy including helpers; excludes shared loads such as the display and fans. Rates are battery-equivalent estimates while plugged in."))
                     .font(.system(size: 9)).foregroundStyle(theme.secondary).fixedSize(horizontal: false, vertical: true)
                 HStack {
-                    Text(battery.energyCalibrationDate == nil
-                         ? DeckL("校准：等待放电样本", "Calibration: waiting for discharge data")
-                         : DeckL("已按真实放电记录校准", "Calibrated from measured discharge"))
+                    Text(!battery.energyCalibrationEnabled
+                         ? DeckL("校准已关闭", "Calibration is off")
+                         : battery.energyCalibrationMethod == .perApp
+                            ? DeckL("App 独立校准 · 未拟合的 App 系数为 1", "Per-app calibration · unfitted apps use factor 1")
+                         : battery.energyCalibrationDate == nil
+                            ? DeckL("校准：等待放电样本", "Calibration: waiting for discharge data")
+                            : DeckL("已按真实放电记录校准", "Calibrated from measured discharge"))
                         .foregroundStyle(theme.secondary)
                     Spacer()
                     Button(DeckL("电量记录", "Battery records")) {
@@ -239,11 +243,17 @@ struct BatteryAppEnergyCard: View {
     }
 
     private var totalRate: String {
-        guard let percent = AppEnergyEntry.percentPerHour(watts: energy.appWatts, battery: battery) else {
+        guard let percent = energy.percentPerHour(battery: battery) else {
             return DeckL("1h 耗电 —", "1h drain —")
         }
         if percent < 0.01 { return DeckL("1h 耗电 <0.01%", "1h drain <0.01%") }
         return String(format: DeckL("1h 耗电 ≈ %.2f%%", "1h drain ≈ %.2f%%"), percent)
+    }
+
+    private var displayedEntries: [AppEnergyEntry] {
+        Array((energy.allEntries ?? energy.entries).sorted {
+            ($0.percentPerHour(battery: battery) ?? $0.watts) > ($1.percentPerHour(battery: battery) ?? $1.watts)
+        }.prefix(5))
     }
 
     private var sampleDescription: String {
@@ -260,7 +270,7 @@ struct BatteryAppEnergyCard: View {
 
     private func rate(_ entry: AppEnergyEntry) -> String {
         guard let percent = entry.percentPerHour(battery: battery) else { return Format.watts(entry.watts) }
-        if percent < 0.01 { return DeckL("<0.01%/小时", "<0.01%/h") }
-        return String(format: DeckL("≈ %.2f%%/小时", "≈ %.2f%%/h"), percent)
+        if percent < 0.01 { return "<0.01%/h" }
+        return String(format: "≈ %.2f%%/h", percent)
     }
 }

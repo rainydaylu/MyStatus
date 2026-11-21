@@ -22,6 +22,7 @@ struct Metric: OptionSet, Hashable, Sendable {
 /// monitoring tool does not become a noticeable load of its own.
 final class SystemSampler {
     var onSample: ((SystemSnapshot) -> Void)?
+    var onBatteryCalibrationStatus: ((BatteryCalibrationStatus) -> Void)?
 
     private let queue = DispatchQueue(label: "statusdeck.sampler", qos: .utility)
     private var timer: DispatchSourceTimer?
@@ -34,6 +35,8 @@ final class SystemSampler {
     private var lastBatteryRead: TimeInterval = -.infinity
     private let recordsBatteryHistory: Bool
     private lazy var batteryLearning = BatteryLearningStore()
+    private var calibrationDetailsVisible = false
+    private var lastCalibrationStatusRead: TimeInterval = -.infinity
 
     private let cpu = CPUReader()
     private let gpu = GPUReader()
@@ -45,6 +48,9 @@ final class SystemSampler {
     private lazy var appEnergy = AppEnergyMonitor(queue: queue) { [weak self] result in
         guard let self else { return }
         self.snapshot.appEnergy = result
+        if self.recordsBatteryHistory, self.always.values.contains(where: { $0.contains(.appEnergy) }) {
+            self.batteryLearning.recordAppEnergy(result, battery: self.snapshot.battery)
+        }
         var update = self.snapshot
         update.sampledMetrics = [.appEnergy]
         self.onSample?(update)
@@ -60,15 +66,60 @@ final class SystemSampler {
         queue.sync { batteryLearning.flush() }
     }
 
+    func setBatteryCalibrationEnabled(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: BatteryCalibrationPreference.key)
+        queue.async { [self] in
+            batteryLearning.setEnabled(enabled)
+            applyBatteryCalibration()
+            var update = snapshot
+            update.sampledMetrics = []
+            onSample?(update)
+            publishCalibrationDetails(force: true)
+        }
+    }
+
+    func setBatteryCalibrationDetailsVisible(_ visible: Bool) {
+        queue.async { [self] in
+            calibrationDetailsVisible = visible
+            if visible { publishCalibrationDetails(force: true) }
+        }
+    }
+
+    func setBatteryCalibrationMethod(_ method: BatteryCalibrationMethod) {
+        UserDefaults.standard.set(method.rawValue, forKey: BatteryCalibrationMethod.key)
+        queue.async { [self] in
+            applyBatteryCalibration()
+            var update = snapshot
+            update.sampledMetrics = []
+            onSample?(update)
+            publishCalibrationDetails(force: true)
+        }
+    }
+
+    private func publishCalibrationDetails(force: Bool = false) {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard calibrationDetailsVisible, force || now - lastCalibrationStatusRead >= 59 else { return }
+        lastCalibrationStatusRead = now
+        onBatteryCalibrationStatus?(batteryLearning.status())
+    }
+
+    private func applyBatteryCalibration() {
+        snapshot.battery.energyCalibrationEnabled = batteryLearning.isEnabled
+        snapshot.battery.energyCalibrationFactor = batteryLearning.appliedFactor
+        snapshot.battery.energyCalibrationDate = batteryLearning.isEnabled ? batteryLearning.model.fittedAt : nil
+        snapshot.battery.energyCalibrationMethod = BatteryCalibrationMethod.current
+        snapshot.battery.appEnergyCalibration = batteryLearning.model.perApp?.coefficients.mapValues(\.factor) ?? [:]
+    }
+
     private func readBattery() {
         lastBatteryRead = ProcessInfo.processInfo.systemUptime
-        var value = battery.read()
+        let value = battery.read()
         if recordsBatteryHistory, always.values.contains(where: { $0.contains(.appEnergy) }) {
             batteryLearning.observe(value)
         }
-        value.energyCalibrationFactor = batteryLearning.model.factor
-        value.energyCalibrationDate = batteryLearning.model.fittedAt
         snapshot.battery = value
+        applyBatteryCalibration()
+        publishCalibrationDetails()
     }
 
     /// What this owner wants. An owner with empty sets has effectively withdrawn.
@@ -149,7 +200,7 @@ final class SystemSampler {
         if metrics.contains(.network) { snapshot.network = network.read() }
         // Slow-changing values are spaced out by multiples of the tick.
         if metrics.contains(.battery) {
-            if ProcessInfo.processInfo.systemUptime - lastBatteryRead >= (isPanelVisible ? 5 : 30) { readBattery() }
+            if ProcessInfo.processInfo.systemUptime - lastBatteryRead >= (isPanelVisible ? 5 : 60) { readBattery() }
             else { snapshot.sampledMetrics.remove(.battery) }
         }
         if metrics.contains(.gpu) { snapshot.gpu = gpu.read() }
@@ -245,6 +296,7 @@ struct History: Equatable {
 final class SystemStore: ObservableObject {
     @Published private(set) var snapshot = SystemSnapshot()
     @Published private(set) var history = History()
+    @Published private(set) var batteryCalibration = BatteryCalibrationStatus()
 
     let sampler: SystemSampler
     let processTransfers = ProcessTransferMonitor()
@@ -255,6 +307,11 @@ final class SystemStore: ObservableObject {
         sampler.onSample = { [weak self] snapshot in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { self?.receive(snapshot) }
+            }
+        }
+        sampler.onBatteryCalibrationStatus = { [weak self] status in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.batteryCalibration = status }
             }
         }
     }

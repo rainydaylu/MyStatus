@@ -61,13 +61,15 @@ struct AppEnergyResultCache {
     }
 
     func load(now: Date = Date()) -> AppEnergyStats? {
-        guard let data = try? Data(contentsOf: file), data.count <= 65_536,
+        guard let data = try? Data(contentsOf: file), data.count <= 262_144,
               let record = try? JSONDecoder().decode(Record.self, from: data), record.version == 1 else { return nil }
         let value = record.value
         guard value.state == .ready, value.seconds.isFinite, (55...90).contains(value.seconds),
               let date = value.sampledAt, (-5...86_400).contains(now.timeIntervalSince(date)),
               value.entries.count <= 5,
               value.entries.allSatisfy({ $0.watts.isFinite && (0...1_000).contains($0.watts) }),
+              (value.allEntries?.count ?? 0) <= 256,
+              (value.allEntries ?? []).allSatisfy({ $0.watts.isFinite && (0...1_000).contains($0.watts) }),
               [value.chipWatts, value.appWatts].compactMap({ $0 }).allSatisfy({ $0.isFinite && (0...1_000).contains($0) }) else { return nil }
         return value
     }
