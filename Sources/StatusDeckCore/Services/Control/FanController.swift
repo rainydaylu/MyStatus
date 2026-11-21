@@ -24,6 +24,35 @@ struct FanTarget: Decodable, Identifiable, Sendable {
     }
 }
 
+/// Firmware acknowledges a write before its target readback updates. Confirm on
+/// the utility queue, allowing that short delay instead of immediately undoing it.
+enum FanWriteConfirmation {
+    struct Result {
+        let confirmed: Bool
+        let fans: [FanTarget]?
+    }
+
+    static func wait(fanID: Int, speed: Int?, read: () -> [FanTarget]?,
+                     pause: () -> Void = { Thread.sleep(forTimeInterval: 0.15) },
+                     now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) -> Result {
+        let deadline = now() + 2.5
+        var latest: [FanTarget]?
+        for attempt in 0..<16 {
+            if let fans = read() {
+                latest = fans
+                if let fan = fans.first(where: { $0.id == fanID }) {
+                    let matches = speed.map { fan.isManual && abs(fan.targetSpeed - $0) < 30 }
+                        ?? (fan.mode == 0 || fan.mode == 3)
+                    if matches { return Result(confirmed: true, fans: fans) }
+                }
+            }
+            if attempt == 15 || now() >= deadline { break }
+            pause()
+        }
+        return Result(confirmed: false, fans: latest)
+    }
+}
+
 /// The bundled fan helper is installed only after explicit administrator approval.
 @MainActor
 final class FanController: ObservableObject {
@@ -60,6 +89,9 @@ final class FanController: ObservableObject {
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.isReading = false
+                    // A refresh started before the command must not replace its
+                    // in-progress state with an old automatic-mode snapshot.
+                    guard !self.isBusy else { return }
                     self.didReadFans = targets != nil
                     self.targets = targets ?? []
                 }
@@ -121,16 +153,19 @@ final class FanController: ObservableObject {
         let path = authorization.helperPath
         isBusy = true
         queue.async { [weak self] in
-            var ok = Self.set(path, fanID: fanID, speed: speed)
-            var updated = Self.read(path)
-            if let speed {
-                ok = ok && updated?.contains { $0.id == fanID && $0.isManual && abs($0.targetSpeed - speed) < 30 } == true
-            } else {
-                ok = ok && updated?.contains { $0.id == fanID && !$0.isManual } == true
-            }
+            let wrote = Self.set(path, fanID: fanID, speed: speed)
+            let verification = wrote
+                ? FanWriteConfirmation.wait(fanID: fanID, speed: speed, read: { Self.read(path) })
+                : FanWriteConfirmation.Result(confirmed: false, fans: Self.read(path))
+            let ok = verification.confirmed
+            var updated = verification.fans
             // A failed speed write can leave the mode in manual.
-            let restored = !ok && speed != nil && Self.set(path, fanID: fanID, speed: nil)
-            if restored { updated = Self.read(path) }
+            var restored = false
+            if !ok, speed != nil, Self.set(path, fanID: fanID, speed: nil) {
+                let rollback = FanWriteConfirmation.wait(fanID: fanID, speed: nil, read: { Self.read(path) })
+                restored = rollback.confirmed
+                updated = rollback.fans ?? updated
+            }
             let result = (ok, restored, updated)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -138,7 +173,12 @@ final class FanController: ObservableObject {
                     self.isBusy = false
                     if let targets = result.2 { self.targets = targets }
                     if result.1 || (result.0 && speed == nil) { self.owned.removeValue(forKey: fanID) }
-                    self.message = result.0 ? nil : DeckL("风扇未确认目标转速，请检查辅助程序和机型支持。", "The fan did not confirm the target. Check helper authorization and model support.")
+                    if result.0 { self.message = nil }
+                    else if result.1 {
+                        self.message = DeckL("未能确认目标转速，已恢复系统自动。", "Could not confirm the target; system automatic control was restored.")
+                    } else {
+                        self.message = DeckL("未能确认风扇状态，请尝试恢复自动。", "Could not confirm the fan state. Try returning to automatic control.")
+                    }
                 }
             }
         }

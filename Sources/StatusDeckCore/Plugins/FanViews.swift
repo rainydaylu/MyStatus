@@ -105,7 +105,7 @@ private struct FanSpeedRow<Label: View>: View {
         Double(fan.clamp(fan.isManual ? fan.targetSpeed : (fan.currentSpeed ?? range.lowerBound)) ?? range.lowerBound)
     }
 
-    private var showsRestore: Bool { fan.isManual || draft != nil }
+    private var showsRestore: Bool { isEditing || draft != nil || fan.isManual }
 
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 5 : 10) {

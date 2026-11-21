@@ -16,6 +16,9 @@ public enum StatusDeckApp {
             Diagnostics.runBattery()
             return
         }
+        if arguments.contains("--diagnose-fan-write") {
+            exit(Diagnostics.runFanWrite())
+        }
 
         if arguments.contains("--diagnose-audio") {
             Diagnostics.runAudio(write: arguments.contains("--write"))

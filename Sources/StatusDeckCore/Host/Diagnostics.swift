@@ -9,6 +9,58 @@ import Darwin
 /// `--diagnose-audio`: prints what every display and audio device actually answers.
 /// With `--write`, nudges each display's volume and reads it back, then restores it.
 enum Diagnostics {
+    /// Explicit, bounded end-to-end test through the same controller as the UI.
+    /// Raises one automatic fan briefly, verifies actual RPM, then restores auto.
+    @MainActor
+    static func runFanWrite() -> Int32 {
+        let authorization = SystemControlAuthorization(isDryRun: false)
+        guard authorization.isAuthorized else {
+            print("fan test: existing system control authorization required")
+            return 1
+        }
+        let controller = FanController(authorization: authorization)
+        func pump(_ seconds: TimeInterval) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+        func wait(_ condition: () -> Bool, timeout: TimeInterval) -> Bool {
+            let deadline = Date().addingTimeInterval(timeout)
+            while !condition(), Date() < deadline { pump(0.05) }
+            return condition()
+        }
+        controller.refresh()
+        guard wait({ !controller.targets.isEmpty }, timeout: 5), let original = controller.targets.first,
+              let bounds = original.bounds, original.mode == 0 || original.mode == 3,
+              let actual = original.currentSpeed else {
+            print("fan test: no automatic fan with a valid range available")
+            return 1
+        }
+        let requested = max(3_000, actual + 400)
+        guard requested < bounds.upperBound - 100 else {
+            print("fan test: insufficient cooling headroom for a higher-speed test")
+            return 1
+        }
+        defer { controller.restoreOwnedFans() }
+        print("fan test: id=\(original.id) initial=\(actual) requested=\(requested)")
+        controller.apply(original, rpm: requested)
+        var confirmed = wait({ !controller.isBusy }, timeout: 20)
+            && controller.message == nil
+            && controller.targets.contains { $0.id == original.id && $0.isManual && abs($0.targetSpeed - requested) < 30 }
+        var reached = 0
+        for index in 0..<10 where confirmed {
+            controller.refresh()
+            pump(0.5)
+            guard let fan = controller.targets.first(where: { $0.id == original.id }) else { confirmed = false; break }
+            print("sample=\(index) mode=\(fan.mode) target=\(fan.targetSpeed) actual=\(fan.currentSpeed ?? -1)")
+            confirmed = fan.isManual && abs(fan.targetSpeed - requested) < 30
+            if let rpm = fan.currentSpeed, abs(rpm - requested) <= max(150, requested / 20) { reached += 1 }
+        }
+        if let message = controller.message { print("fan test message: \(message)") }
+        controller.automatic(original)
+        let restored = wait({ !controller.isBusy }, timeout: 20)
+            && controller.message == nil
+            && controller.targets.contains { $0.id == original.id && ($0.mode == 0 || $0.mode == 3) }
+        print("fan test: confirmed=\(confirmed) rpm_reached_samples=\(reached) restored_auto=\(restored)")
+        return confirmed && reached >= 2 && restored ? 0 : 1
+    }
+
     static func runBattery() {
         let reader = AppEnergyReader()
         let battery = BatteryReader()
