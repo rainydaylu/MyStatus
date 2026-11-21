@@ -481,6 +481,17 @@ struct BatteryReader {
             stats.amps = Double(amperage) / 1000
         }
         stats.adapterWatts = (adapter?["Watts"] as? Int) ?? ((registry["AdapterDetails"] as? [String: Any])?["Watts"] as? Int)
+        let telemetry = registry["PowerTelemetryData"] as? [String: Any] ?? [:]
+        func watts(_ key: String) -> Double? {
+            guard let raw = (telemetry[key] as? NSNumber)?.doubleValue, raw.isFinite,
+                  raw >= 0, raw < 1_000_000 else { return nil }
+            return raw / 1_000
+        }
+        stats.adapterInputWatts = watts("SystemPowerIn")
+        stats.systemLoadWatts = watts("SystemLoad")
+        if let nominal = number("DesignVoltage") ?? number("NominalVoltage"), nominal > 0 {
+            stats.nominalVolts = Double(nominal) / 1_000
+        }
         return stats
     }
 }

@@ -74,3 +74,16 @@ Copyright (c) 2026 Ark0N. Full terms: LICENSES/LogoLight-MIT.txt.
 Pinned revision and adaptation notes are in Extensions/LogoLightPlugin/upstream.json.
 MyStatus supplies the plugin lifecycle, signal modes, CodeIsland event bridge,
 settings UI and recovery helper. This plugin does not include Backlit source or assets.
+
+## App energy accounting
+
+The read-only resource-coalition C shim in `Sources/CPrivateAPI/energy.c` and
+`include/StatusDeckEnergy.h` is adapted from [EClinick/juice](https://github.com/EClinick/juice),
+Copyright (c) 2026 Ethan Clinick, under MIT. Full terms: `LICENSES/Juice-MIT.txt`.
+MyStatus adds guarded dynamic symbol lookup, ABI checks, on-demand sampling,
+rolling averages, app aggregation and battery-equivalent percent-per-hour estimates.
+The sampler does not install Juice's helper or access the powerlog database.
+
+[lzt1008/powerflow](https://github.com/lzt1008/powerflow) (MIT) was consulted for
+the documented meanings of `PowerTelemetryData` and the SMC display-power key `PDBR`.
+The native SwiftUI flow drawing is MyStatus's own implementation.

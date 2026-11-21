@@ -181,6 +181,7 @@ struct SensorStats: Equatable, Sendable {
     var fans: [FanReading] = []
     var systemWatts: Double?
     var adapterInputWatts: Double?
+    var displayWatts: Double?
 
     func average(_ group: TemperatureReading.Group) -> Double? {
         let values = temperatures.filter { $0.group == group }.map(\.celsius)
@@ -210,11 +211,23 @@ struct BatteryStats: Equatable, Sendable {
     var volts: Double?
     var amps: Double?
     var adapterWatts: Int?
+    var adapterInputWatts: Double?
+    var systemLoadWatts: Double?
+    var nominalVolts: Double?
     var isLowPowerMode = false
 
     var watts: Double? {
         guard let volts, let amps else { return nil }
         return volts * amps
+    }
+
+    /// A capacity-based estimate, not the adapter's rated wattage. Prefer a
+    /// reported nominal voltage; otherwise the current pack voltage is used.
+    var estimatedFullChargeWattHours: Double? {
+        guard let capacity = fullChargeCapacity, capacity > 1,
+              let voltage = nominalVolts ?? volts, voltage.isFinite, voltage > 0 else { return nil }
+        let value = Double(capacity) / 1_000 * voltage
+        return value.isFinite && value > 0 ? value : nil
     }
 
     var statusText: String {
@@ -252,6 +265,7 @@ struct SystemSnapshot: Equatable, Sendable {
     var sensors = SensorStats()
     var battery = BatteryStats()
     var processes = ProcessStats()
+    var appEnergy = AppEnergyStats()
     var uptime: TimeInterval = 0
     var loadAverage: [Double] = [0, 0, 0]
 

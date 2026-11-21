@@ -8,6 +8,7 @@
 #include <IOKit/IOKitLib.h>
 #include <IOKit/graphics/IOGraphicsTypes.h>
 #include <IOKit/graphics/IOGraphicsLib.h>
+#include "StatusDeckEnergy.h"
 
 typedef CFTypeRef IOAVService;
 extern IOAVService IOAVServiceCreateWithService(CFAllocatorRef allocator, io_service_t service);

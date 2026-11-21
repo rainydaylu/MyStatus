@@ -12,6 +12,10 @@ public enum StatusDeckApp {
             Diagnostics.runCPU()
             return
         }
+        if arguments.contains("--diagnose-battery") {
+            Diagnostics.runBattery()
+            return
+        }
 
         if arguments.contains("--diagnose-audio") {
             Diagnostics.runAudio(write: arguments.contains("--write"))
@@ -333,11 +337,13 @@ private final class PluginVerificationHost: DeckHost {
 final class SnapshotRenderer {
     private let folder: URL
     private let host = HostController(isDryRun: true)
+    private let batteryEnergy = AppEnergyReader()
 
     init(folder: URL) { self.folder = folder }
 
     func start() {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        _ = batteryEnergy.read()
         for entry in host.manager.entries where entry.plugin != nil {
             // Everything on, whatever this Mac's settings say, without saving that.
             entry.plugin?.activate(host: host)
@@ -357,7 +363,13 @@ final class SnapshotRenderer {
     private func renderAll() {
         let plugins = host.manager.entries.compactMap(\.plugin).sorted { $0.manifest.sortOrder < $1.manifest.sortOrder }
         let sections = plugins.flatMap(\.sections)
+        var batterySnapshot = host.services.store.snapshot
+        batterySnapshot.appEnergy = batteryEnergy.read()
         for (scheme, label) in [(ColorScheme.dark, "dark"), (ColorScheme.light, "light")] {
+            render(VStack(spacing: DeckTheme.cardSpacing) {
+                BatteryPowerFlowCard(snapshot: batterySnapshot)
+                BatteryAppEnergyCard(energy: batterySnapshot.appEnergy, battery: batterySnapshot.battery)
+            }.padding(12).frame(width: DeckTheme.flyoutWidth + 24), scheme: scheme, name: "\(label)-battery-energy")
             if let clipboard = plugins.compactMap({ $0 as? ClipboardPlugin }).first {
                 render(clipboard.browserSnapshot.frame(width: 400, height: 850), scheme: scheme, name: "\(label)-clipboard-shelf")
             }

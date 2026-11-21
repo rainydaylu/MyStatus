@@ -8,6 +8,21 @@ import Foundation
 /// `--diagnose-audio`: prints what every display and audio device actually answers.
 /// With `--write`, nudges each display's volume and reads it back, then restores it.
 enum Diagnostics {
+    static func runBattery() {
+        let reader = AppEnergyReader()
+        let battery = BatteryReader()
+        for index in 0..<4 {
+            let start = ProcessInfo.processInfo.systemUptime
+            let stats = reader.read()
+            let pack = battery.read()
+            print("sample=\(index) state=\(stats.state) seconds=\(stats.seconds) read_ms=\((ProcessInfo.processInfo.systemUptime - start) * 1_000) capacity_Wh=\(pack.estimatedFullChargeWattHours ?? -1) chip_W=\(stats.chipWatts ?? -1)")
+            for entry in stats.entries {
+                print("  \(entry.name): \(entry.watts) W, \(entry.percentPerHour(battery: pack) ?? -1) %/h")
+            }
+            if index < 3 { Thread.sleep(forTimeInterval: 3) }
+        }
+    }
+
     static func runCPU() {
         let kinds = CPUReader.readCoreKinds()
         for kind in CoreKind.allCases {

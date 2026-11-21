@@ -841,7 +841,7 @@ final class BatteryPlugin: BuiltInPlugin {
     }
 
     override func didActivate() {
-        services.store.sampler.setInterest(owner: manifest.id, always: [.battery], whilePanelVisible: [.sensors])
+        services.store.sampler.setInterest(owner: manifest.id, always: [.battery], whilePanelVisible: [.sensors, .soc])
     }
 
     override func willDeactivate() {
@@ -889,7 +889,6 @@ private struct BatteryDetail: View {
 
     var body: some View {
         let battery = store.snapshot.battery
-        let sensors = store.snapshot.sensors
         VStack(spacing: DeckTheme.cardSpacing) {
             DeckCard {
                 VStack(spacing: 6) {
@@ -920,22 +919,10 @@ private struct BatteryDetail: View {
                 } ?? "")
                 }
             }
+            BatteryPowerFlowCard(snapshot: store.snapshot)
             MonitorHistoryCard(history: store.history.battery,
                                series: [.init(title: DeckL("电量"), color: theme.accent, format: Format.percent)],
                                values: { [Double($0.percent) / 100] }, maximum: 1, compact: true)
-            DeckCard {
-                VStack(alignment: .leading, spacing: 3) {
-                    DeckTitle(DeckL("电量流向"))
-                    if let adapter = battery.adapterWatts { DeckInfoRow(DeckL("适配器额定"), "\(adapter) W") }
-                    if let input = sensors.adapterInputWatts, battery.isExternalPowerConnected {
-                        DeckInfoRow(DeckL("适配器输入"), Format.watts(input))
-                    }
-                    if let system = sensors.systemWatts { DeckInfoRow(DeckL("系统耗电"), Format.watts(system)) }
-                    if let watts = battery.watts, abs(watts) >= 0.05 {
-                        DeckInfoRow(watts > 0 ? DeckL("充入电池") : DeckL("电池放电"), Format.watts(abs(watts)))
-                    }
-                }
-            }
             DeckCard {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -970,8 +957,13 @@ private struct BatteryDetail: View {
                     }
                 }
             }
+            BatteryAppEnergyCard(energy: store.snapshot.appEnergy, battery: battery)
         }
-        .onAppear { bluetooth.refreshIfStale() }
+        .onAppear {
+            bluetooth.refreshIfStale()
+            store.sampler.setInterest(owner: "battery.detail.energy", whilePanelVisible: [.appEnergy])
+        }
+        .onDisappear { store.sampler.removeInterest(owner: "battery.detail.energy") }
     }
 }
 

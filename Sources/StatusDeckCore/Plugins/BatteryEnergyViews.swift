@@ -1,0 +1,208 @@
+import StatusDeckKit
+import SwiftUI
+
+struct BatteryPowerFlow: Equatable {
+    let isExternal: Bool
+    let input: Double?
+    let battery: Double?
+    let system: Double?
+    let chip: Double?
+    let display: Double?
+    let other: Double?
+
+    init(snapshot: SystemSnapshot) {
+        func valid(_ value: Double?) -> Double? {
+            guard let value, value.isFinite, value >= 0, value <= 1_000 else { return nil }
+            return value
+        }
+        let stats = snapshot.battery
+        let external = stats.isExternalPowerConnected
+        let batteryWatts = stats.watts.flatMap { $0.isFinite && abs($0) <= 1_000 ? $0 : nil }
+        let incoming = external ? valid(stats.adapterInputWatts) ?? valid(snapshot.sensors.adapterInputWatts) : batteryWatts.map { max(0, -$0) }
+        isExternal = external
+        battery = batteryWatts
+        input = incoming
+        // Never use adapterWatts here: that is a negotiated rating, not a
+        // measurement of the power entering the computer.
+        system = valid(stats.systemLoadWatts) ?? valid(snapshot.sensors.systemWatts)
+            ?? incoming.flatMap { source in batteryWatts.map { external ? max(0, source - $0) : source } }
+        let domains = [snapshot.soc.cpuWatts, snapshot.soc.gpuWatts, snapshot.soc.aneWatts].compactMap(valid)
+        chip = valid(snapshot.appEnergy.chipWatts) ?? (domains.isEmpty ? nil : domains.reduce(0, +))
+        display = valid(snapshot.sensors.displayWatts)
+        if let system, let chip, let display, system >= chip + display {
+            other = system - chip - display
+        } else {
+            other = nil
+        }
+    }
+}
+
+/// A compact flow ribbon on the same DeckCard surface as the other flyouts.
+struct BatteryPowerFlowCard: View {
+    let snapshot: SystemSnapshot
+    @Environment(\.deckTheme) private var theme
+
+    var body: some View {
+        let flow = BatteryPowerFlow(snapshot: snapshot)
+        DeckCard {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    DeckTitle(DeckL("电力流向", "Power flow"))
+                    Spacer()
+                    Text(flow.isExternal ? DeckL("已接电源", "Plugged in") : DeckL("电池供电", "On battery"))
+                        .font(.system(size: 10)).foregroundStyle(theme.secondary)
+                }
+                GeometryReader { geometry in
+                    let width = geometry.size.width
+                    let sourceX: CGFloat = 20
+                    let middleX = width * 0.48
+                    let endX = width - 15
+                    let deviceY: CGFloat = flow.isExternal ? 77 : 53
+                    Canvas { context, _ in
+                        let maximum = max(1, flow.input ?? flow.system ?? 1)
+                        func ribbon(_ from: CGPoint, _ to: CGPoint, watts: Double?, color: Color) {
+                            let amount = watts.map { abs($0) }
+                            let thickness = amount.map { CGFloat(max(2, min(22, 22 * $0 / maximum))) } ?? 3
+                            if amount == nil {
+                                var line = Path()
+                                line.move(to: from)
+                                let dx = (to.x - from.x) * 0.52
+                                line.addCurve(to: to, control1: CGPoint(x: from.x + dx, y: from.y),
+                                              control2: CGPoint(x: to.x - dx, y: to.y))
+                                context.stroke(line, with: .color(theme.secondary.opacity(0.35)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                                return
+                            }
+                            let dx = (to.x - from.x) * 0.52
+                            var path = Path()
+                            path.move(to: CGPoint(x: from.x, y: from.y - thickness / 2))
+                            path.addCurve(to: CGPoint(x: to.x, y: to.y - thickness / 2),
+                                          control1: CGPoint(x: from.x + dx, y: from.y - thickness / 2),
+                                          control2: CGPoint(x: to.x - dx, y: to.y - thickness / 2))
+                            path.addLine(to: CGPoint(x: to.x, y: to.y + thickness / 2))
+                            path.addCurve(to: CGPoint(x: from.x, y: from.y + thickness / 2),
+                                          control1: CGPoint(x: to.x - dx, y: to.y + thickness / 2),
+                                          control2: CGPoint(x: from.x + dx, y: from.y + thickness / 2))
+                            path.closeSubpath()
+                            context.fill(path, with: .linearGradient(Gradient(colors: [color.opacity(0.45), color.opacity(0.13)]),
+                                                                    startPoint: from, endPoint: to))
+                            context.stroke(path, with: .color(color.opacity(0.3)), lineWidth: 0.6)
+                        }
+                        if flow.isExternal {
+                            ribbon(CGPoint(x: 41, y: 42), CGPoint(x: middleX - 19, y: 17), watts: flow.battery, color: theme.positive)
+                        }
+                        ribbon(CGPoint(x: 41, y: 62), CGPoint(x: middleX - 19, y: deviceY), watts: flow.system, color: theme.accent)
+                        for (watts, y, color) in [(flow.chip, CGFloat(39), theme.accent),
+                                                 (flow.display, CGFloat(65), theme.magenta),
+                                                 (flow.other, CGFloat(91), theme.secondary)] {
+                            ribbon(CGPoint(x: middleX + 19, y: deviceY), CGPoint(x: endX - 16, y: y), watts: watts, color: color)
+                        }
+                    }
+                    VStack(spacing: 7) {
+                        Image(systemName: flow.isExternal ? "powerplug.fill" : "battery.75percent").font(.system(size: 17))
+                        Text(Format.watts(flow.input)).font(.system(size: 10, weight: .semibold)).monospacedDigit()
+                    }
+                    .foregroundStyle(flow.isExternal ? theme.accent : theme.positive)
+                    .frame(width: 40, height: 80)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(theme.inset))
+                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.cardStroke, lineWidth: 0.7))
+                    .position(x: sourceX, y: 52)
+                    if flow.isExternal {
+                        node("battery.100percent", color: theme.positive).position(x: middleX, y: 17)
+                            .help(DeckL("电池", "Battery"))
+                        value(flow.battery).position(x: width * 0.30, y: 13)
+                            .help(DeckL("正值充电，负值放电", "Positive: charging; negative: discharging"))
+                    }
+                    node("laptopcomputer", color: theme.accent).position(x: middleX, y: deviceY)
+                        .help(DeckL("整机耗电", "System power"))
+                    value(flow.system).position(x: width * 0.30, y: flow.isExternal ? 85 : 72)
+                    node("cpu", color: theme.accent).position(x: endX, y: 39).help(DeckL("芯片", "Chip"))
+                    node("display", color: theme.magenta).position(x: endX, y: 65).help(DeckL("内置屏幕", "Built-in display"))
+                    node("ellipsis", color: theme.secondary).position(x: endX, y: 91).help(DeckL("其他耗电", "Other power"))
+                    value(flow.chip).position(x: width * 0.73, y: 33)
+                    value(flow.display).position(x: width * 0.73, y: 62)
+                    value(flow.other).position(x: width * 0.73, y: 91)
+                }
+                .frame(height: 103)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(DeckLF("电力流向：输入 %@，电池 %@，整机 %@，芯片 %@，屏幕 %@，其他 %@", "Power flow: input %@, battery %@, system %@, chip %@, display %@, other %@",
+                                          Format.watts(flow.input), Format.watts(flow.battery), Format.watts(flow.system),
+                                          Format.watts(flow.chip), Format.watts(flow.display), Format.watts(flow.other)))
+            }
+        }
+        .accessibilityIdentifier("battery.power-flow")
+    }
+
+    private func node(_ symbol: String, color: Color) -> some View {
+        Image(systemName: symbol).font(.system(size: 14, weight: .medium)).foregroundStyle(color)
+            .frame(width: 32, height: 24)
+            .background(RoundedRectangle(cornerRadius: 8).fill(theme.inset))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(theme.cardStroke, lineWidth: 0.7))
+    }
+
+    private func value(_ watts: Double?) -> some View {
+        Text(Format.watts(watts)).font(.system(size: 10, weight: .semibold)).monospacedDigit()
+            .foregroundStyle(theme.primary).padding(.horizontal, 3).padding(.vertical, 1)
+            .background(theme.cardBottom.opacity(0.7), in: Capsule())
+    }
+}
+
+struct BatteryAppEnergyCard: View {
+    let energy: AppEnergyStats
+    let battery: BatteryStats
+    @Environment(\.deckTheme) private var theme
+
+    var body: some View {
+        DeckCard {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    DeckTitle(DeckL("App 能耗", "App energy"))
+                    Spacer()
+                    Text(DeckL("约 % / 小时", "Est. % / hour"))
+                        .font(.system(size: 10)).foregroundStyle(theme.secondary)
+                }
+                if energy.state == .warmingUp {
+                    Text(DeckL("正在采样，几秒后显示…", "Sampling — results in a few seconds…"))
+                        .font(.system(size: 11)).foregroundStyle(theme.secondary)
+                } else if energy.state == .unavailable {
+                    Text(DeckL("当前系统未提供可读取的 App 能耗。", "App energy counters are unavailable on this system."))
+                        .font(.system(size: 11)).foregroundStyle(theme.secondary)
+                } else if energy.entries.isEmpty {
+                    Text(DeckL("当前未测得 App 能耗。", "No app energy use measured in this interval."))
+                        .font(.system(size: 11)).foregroundStyle(theme.secondary)
+                }
+                ForEach(energy.entries) { entry in
+                    HStack(spacing: 8) {
+                        Image(nsImage: DeckAppIcon.image(forPath: entry.bundlePath)).resizable().frame(width: 22, height: 22)
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(entry.name).font(.system(size: 12)).lineLimit(1).foregroundStyle(theme.primary)
+                                Spacer(minLength: 5)
+                                Text(rate(entry)).font(.system(size: 12, weight: .medium)).monospacedDigit().foregroundStyle(theme.primary)
+                            }
+                            GeometryReader { proxy in
+                                Capsule().fill(theme.inset)
+                                Capsule().fill(theme.accent.opacity(0.7))
+                                    .frame(width: proxy.size.width * min(1, entry.watts / max(0.001, energy.entries.first?.watts ?? 1)))
+                            }.frame(height: 3)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                    .help(Format.watts(entry.watts))
+                }
+                if energy.state == .ready {
+                    Text(DeckLF("近 %lld 秒平均 · 接电时按电池等效耗电估算", "Average over %lld s · battery-equivalent rate while plugged in", Int64(energy.seconds.rounded())))
+                        .font(.system(size: 9)).foregroundStyle(theme.secondary)
+                }
+                Text(DeckL("含辅助进程的 CPU / GPU / 神经引擎能耗；不含屏幕等共享耗电。百分比按满充容量与电压换算。", "CPU / GPU / Neural Engine energy, including helpers; excludes shared loads such as the display. Percent uses full-charge capacity and voltage."))
+                    .font(.system(size: 9)).foregroundStyle(theme.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityIdentifier("battery.app-energy")
+    }
+
+    private func rate(_ entry: AppEnergyEntry) -> String {
+        guard let percent = entry.percentPerHour(battery: battery) else { return Format.watts(entry.watts) }
+        if percent < 0.01 { return DeckL("<0.01%/小时", "<0.01%/h") }
+        return String(format: DeckL("≈ %.2f%%/小时", "≈ %.2f%%/h"), percent)
+    }
+}

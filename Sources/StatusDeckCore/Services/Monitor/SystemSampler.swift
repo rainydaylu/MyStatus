@@ -14,6 +14,7 @@ struct Metric: OptionSet, Hashable, Sendable {
     static let battery = Metric(rawValue: 1 << 7)
     static let processes = Metric(rawValue: 1 << 8)
     static let system = Metric(rawValue: 1 << 9)
+    static let appEnergy = Metric(rawValue: 1 << 10)
 }
 
 /// Owns every reader and calls them from one serial queue. Only what some enabled
@@ -38,6 +39,7 @@ final class SystemSampler {
     private let network = NetworkReader()
     private let battery = BatteryReader()
     private let processes = ProcessReader()
+    private let appEnergy = AppEnergyReader()
     private lazy var temperatures = TemperatureReader()
     private lazy var smc = SMCClient()
     private lazy var ioReport = IOReportReader()
@@ -45,8 +47,13 @@ final class SystemSampler {
     /// What this owner wants. An owner with empty sets has effectively withdrawn.
     func setInterest(owner: String, always newAlways: Metric = [], whilePanelVisible newVisible: Metric = []) {
         queue.async { [self] in
+            let wasReadingEnergy = active.contains(.appEnergy)
             always[owner] = newAlways.isEmpty ? nil : newAlways
             whileVisible[owner] = newVisible.isEmpty ? nil : newVisible
+            if wasReadingEnergy, !active.contains(.appEnergy) {
+                appEnergy.reset()
+                snapshot.appEnergy = AppEnergyStats()
+            }
             reconcile(sampleNow: true)
         }
     }
@@ -60,6 +67,7 @@ final class SystemSampler {
             guard isPanelVisible != visible else { return }
             if visible, !active.contains(.soc) { ioReport?.reset() }
             isPanelVisible = visible
+            if !visible { appEnergy.reset(); snapshot.appEnergy = AppEnergyStats() }
             if visible { tick = 0 }
             reconcile(sampleNow: visible)
         }
@@ -150,12 +158,14 @@ final class SystemSampler {
                     snapshot.sensors.fans = smc.fans()
                     snapshot.sensors.systemWatts = smc.read("PSTR")
                     snapshot.sensors.adapterInputWatts = smc.read("PDTR")
+                    snapshot.sensors.displayWatts = smc.read("PDBR")
                 }
             } else {
                 snapshot.sampledMetrics.remove(.sensors)
             }
         }
         if metrics.contains(.processes), tick % 3 == 0 { snapshot.processes = processes.read() }
+        if metrics.contains(.appEnergy), tick % 3 == 0 { snapshot.appEnergy = appEnergy.read() }
         onSample?(snapshot)
     }
 }
