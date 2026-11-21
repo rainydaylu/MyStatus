@@ -47,14 +47,12 @@ struct BatteryCalibrationSettings: View {
                 ProgressView(value: perApp ? min(1, Double(status.appWindowCount) / Double(AppCalibrationFit.minimumRows)) : status.evidence.progress)
                     .tint(enabled ? Color.accentColor : .gray)
                     .accessibilityLabel(DeckL("校准样本积累进度", "Calibration data collection progress"))
-                Text(perApp
-                     ? DeckL("至少需要 50 个有效的一分钟窗口，以及 App 负载的独立变化。进度表示样本量；每天检查拟合，未通过验证的 App 系数保持 1。", "At least 50 valid one-minute windows and independently varying app workloads are needed. Progress shows data collection. Fitting is checked daily; unvalidated apps use factor 1.")
-                     : DeckL("最低需要 15 分钟有效放电、3 个百分点电量下降。进度表示样本量，达到要求后次日检查校准。", "At least 15 minutes of usable discharge and a 3-point charge drop are required. Progress indicates data collection; calibration is checked the next day."))
+                Text(DeckL("校准可能需要一天。", "Calibration may take a day."))
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3), alignment: .leading, spacing: 12) {
                 if perApp {
-                    metric(DeckL("有效窗口", "Valid windows"), "\(status.appWindowCount) / \(AppCalibrationFit.minimumRows)")
+                    metric(DeckL("有效窗口", "Valid windows"), "\(status.appWindowCount)")
                     metric(DeckL("已拟合 App", "Fitted apps"), "\(status.model.perApp?.coefficients.count ?? 0)")
                     metric(DeckL("缺省系数", "Default factor"), "1.000×")
                 } else {

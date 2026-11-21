@@ -217,21 +217,7 @@ struct BatteryAppEnergyCard: View {
                     .padding(.vertical, 2)
                     .help(Format.watts(entry.watts))
                 }
-                if energy.state == .ready {
-                    Text(sampleDescription)
-                        .font(.system(size: 9)).foregroundStyle(theme.secondary)
-                }
-                Text(DeckL("含辅助进程的 CPU / GPU / 神经引擎能耗；不含屏幕、风扇等共享耗电。接电时为电池等效估算。", "CPU / GPU / Neural Engine energy including helpers; excludes shared loads such as the display and fans. Rates are battery-equivalent estimates while plugged in."))
-                    .font(.system(size: 9)).foregroundStyle(theme.secondary).fixedSize(horizontal: false, vertical: true)
                 HStack {
-                    Text(!battery.energyCalibrationEnabled
-                         ? DeckL("校准已关闭", "Calibration is off")
-                         : battery.energyCalibrationMethod == .perApp
-                            ? DeckL("App 独立校准 · 未拟合的 App 系数为 1", "Per-app calibration · unfitted apps use factor 1")
-                         : battery.energyCalibrationDate == nil
-                            ? DeckL("校准：等待放电样本", "Calibration: waiting for discharge data")
-                            : DeckL("已按真实放电记录校准", "Calibrated from measured discharge"))
-                        .foregroundStyle(theme.secondary)
                     Spacer()
                     Button(DeckL("电量记录", "Battery records")) {
                         NSWorkspace.shared.open(BatteryLearningStore.standardFolder)
@@ -254,18 +240,6 @@ struct BatteryAppEnergyCard: View {
         Array((energy.allEntries ?? energy.entries).sorted {
             ($0.percentPerHour(battery: battery) ?? $0.watts) > ($1.percentPerHour(battery: battery) ?? $1.watts)
         }.prefix(5))
-    }
-
-    private var sampleDescription: String {
-        let average = energy.seconds >= 55 ? DeckL("1 分钟平均", "1-minute average")
-            : DeckLF("平均 %lld 秒", "Average over %lld s", Int64(energy.seconds.rounded()))
-        guard let date = energy.sampledAt else { return average }
-        let age = max(0, Date().timeIntervalSince(date))
-        let updated: String
-        if age < 60 { updated = DeckL("刚刚更新", "Updated just now") }
-        else if age < 3_600 { updated = DeckLF("%lld 分钟前更新", "Updated %lld min ago", Int64(age / 60)) }
-        else { updated = DeckLF("%lld 小时前更新", "Updated %lld h ago", Int64(age / 3_600)) }
-        return average + " · " + updated
     }
 
     private func rate(_ entry: AppEnergyEntry) -> String {
