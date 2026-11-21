@@ -33,9 +33,9 @@ import Testing
     @Test func clippingTheWindowUsesElapsedTimeRatherThanNumberOfSamples() throws {
         var window = AppEnergyWindow()
         _ = window.record([counter(0)], at: 0, available: true)
-        _ = window.record([counter(40_000_000_000)], at: 20, available: true) // 2 W
-        let stats = window.record([counter(60_000_000_000)], at: 40, available: true) // 1 W
-        #expect(stats.seconds == 30)
+        _ = window.record([counter(80_000_000_000)], at: 40, available: true) // 2 W
+        let stats = window.record([counter(120_000_000_000)], at: 80, available: true) // 1 W
+        #expect(stats.seconds == 60)
         #expect(abs((try #require(stats.entries.first).watts) - 4.0 / 3) < 0.00001)
     }
 

@@ -81,7 +81,9 @@ The read-only resource-coalition C shim in `Sources/CPrivateAPI/energy.c` and
 `include/StatusDeckEnergy.h` is adapted from [EClinick/juice](https://github.com/EClinick/juice),
 Copyright (c) 2026 Ethan Clinick, under MIT. Full terms: `LICENSES/Juice-MIT.txt`.
 MyStatus adds guarded dynamic symbol lookup, ABI checks, on-demand sampling,
-rolling averages, app aggregation and battery-equivalent percent-per-hour estimates.
+one-minute averages, app aggregation and battery-equivalent percent-per-hour estimates.
+Foreground measurements update once a minute. Background measurements use the
+endpoints of one one-minute window every five minutes, with a compact cached result.
 The sampler does not install Juice's helper or access the powerlog database.
 
 [lzt1008/powerflow](https://github.com/lzt1008/powerflow) (MIT) was consulted for

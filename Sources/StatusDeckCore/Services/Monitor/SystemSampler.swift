@@ -39,7 +39,13 @@ final class SystemSampler {
     private let network = NetworkReader()
     private let battery = BatteryReader()
     private let processes = ProcessReader()
-    private let appEnergy = AppEnergyReader()
+    private lazy var appEnergy = AppEnergyMonitor(queue: queue) { [weak self] result in
+        guard let self else { return }
+        self.snapshot.appEnergy = result
+        var update = self.snapshot
+        update.sampledMetrics = [.appEnergy]
+        self.onSample?(update)
+    }
     private lazy var temperatures = TemperatureReader()
     private lazy var smc = SMCClient()
     private lazy var ioReport = IOReportReader()
@@ -47,13 +53,8 @@ final class SystemSampler {
     /// What this owner wants. An owner with empty sets has effectively withdrawn.
     func setInterest(owner: String, always newAlways: Metric = [], whilePanelVisible newVisible: Metric = []) {
         queue.async { [self] in
-            let wasReadingEnergy = active.contains(.appEnergy)
             always[owner] = newAlways.isEmpty ? nil : newAlways
             whileVisible[owner] = newVisible.isEmpty ? nil : newVisible
-            if wasReadingEnergy, !active.contains(.appEnergy) {
-                appEnergy.reset()
-                snapshot.appEnergy = AppEnergyStats()
-            }
             reconcile(sampleNow: true)
         }
     }
@@ -67,7 +68,6 @@ final class SystemSampler {
             guard isPanelVisible != visible else { return }
             if visible, !active.contains(.soc) { ioReport?.reset() }
             isPanelVisible = visible
-            if !visible { appEnergy.reset(); snapshot.appEnergy = AppEnergyStats() }
             if visible { tick = 0 }
             reconcile(sampleNow: visible)
         }
@@ -96,6 +96,8 @@ final class SystemSampler {
     }
 
     private func reconcile(sampleNow: Bool) {
+        let energyVisible = isPanelVisible && whileVisible.values.contains { $0.contains(.appEnergy) }
+        appEnergy.configure(enabled: active.contains(.appEnergy), foreground: energyVisible)
         if active.isEmpty {
             timer?.cancel()
             timer = nil
@@ -165,7 +167,6 @@ final class SystemSampler {
             }
         }
         if metrics.contains(.processes), tick % 3 == 0 { snapshot.processes = processes.read() }
-        if metrics.contains(.appEnergy), tick % 3 == 0 { snapshot.appEnergy = appEnergy.read() }
         onSample?(snapshot)
     }
 }

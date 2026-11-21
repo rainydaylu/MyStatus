@@ -2,24 +2,31 @@ import CPrivateAPI
 import Darwin
 import Foundation
 
-struct AppEnergyEntry: Identifiable, Equatable, Sendable {
+struct AppEnergyEntry: Identifiable, Equatable, Sendable, Codable {
     let id: String
     let name: String
     let bundlePath: String
     let watts: Double
 
     func percentPerHour(battery: BatteryStats) -> Double? {
-        guard watts.isFinite, watts >= 0, let capacity = battery.estimatedFullChargeWattHours else { return nil }
+        Self.percentPerHour(watts: watts, battery: battery)
+    }
+
+    static func percentPerHour(watts: Double?, battery: BatteryStats) -> Double? {
+        guard let watts, watts.isFinite, watts >= 0, let capacity = battery.estimatedFullChargeWattHours else { return nil }
         return watts / capacity * 100
     }
 }
 
-struct AppEnergyStats: Equatable, Sendable {
-    enum State: Equatable, Sendable { case warmingUp, ready, unavailable }
+struct AppEnergyStats: Equatable, Sendable, Codable {
+    enum State: String, Equatable, Sendable, Codable { case warmingUp, ready, unavailable }
     var state: State = .warmingUp
     var entries: [AppEnergyEntry] = []
     var seconds: Double = 0
     var chipWatts: Double?
+    /// All attributable apps, including those below the displayed top five.
+    var appWatts: Double?
+    var sampledAt: Date?
 }
 
 /// One reading per resource coalition, never one copy of the same energy for
@@ -39,7 +46,7 @@ struct AppEnergyCounter: Equatable {
     }
 }
 
-/// Differentiate cumulative counters, then time-weight the last 30 seconds.
+/// Differentiate cumulative counters, then time-weight the last minute.
 /// New coalitions start a baseline; resets and sleep gaps cannot become spikes.
 struct AppEnergyWindow {
     struct Interval {
@@ -50,7 +57,7 @@ struct AppEnergyWindow {
     private var previous: [UInt64: AppEnergyCounter] = [:]
     private var previousTime: Double?
     private var intervals: [Interval] = []
-    static let duration: Double = 30
+    static let duration: Double = 60
 
     mutating func reset() { self = Self() }
 
@@ -96,14 +103,16 @@ struct AppEnergyWindow {
             return AppEnergyEntry(id: path, name: item.name, bundlePath: path, watts: watts)
         }.sorted { $0.watts == $1.watts ? $0.name < $1.name : $0.watts > $1.watts }
         let chipWatts = totals.values.reduce(0) { $0 + $1.joules } / seconds
+        let appTotals = totals.filter { !$0.key.isEmpty }
+        let appWatts = appTotals.isEmpty ? nil : appTotals.values.reduce(0) { $0 + $1.joules } / seconds
         return AppEnergyStats(state: .ready, entries: Array(entries.prefix(5)), seconds: seconds,
-                              chipWatts: chipWatts > 0 ? chipWatts : nil)
+                              chipWatts: chipWatts > 0 ? chipWatts : nil, appWatts: appWatts)
     }
 }
 
 /// Read-only coalition accounting adapted from EClinick/juice (MIT). Unlike
 /// powerlog/powermetrics this route needs neither root nor Full Disk Access.
-/// Only the sampler's serial queue calls this reader, while battery details show.
+/// Only the energy monitor's serial queue calls this reader, at scheduled endpoints.
 final class AppEnergyReader {
     private var window = AppEnergyWindow()
     private var paths: [Int32: (coalition: UInt64, bundle: String?)] = [:]
@@ -140,7 +149,9 @@ final class AppEnergyReader {
                                             name: bundle.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent } ?? "",
                                             cpu: usage.cpuEnergyNJ, gpu: usage.gpuEnergyNJ, ane: usage.aneEnergyNJ))
         }
-        return window.record(counters, at: ProcessInfo.processInfo.systemUptime, available: available)
+        var result = window.record(counters, at: ProcessInfo.processInfo.systemUptime, available: available)
+        if result.state == .ready { result.sampledAt = Date() }
+        return result
     }
 
     private static func allPIDs() -> [Int32] {

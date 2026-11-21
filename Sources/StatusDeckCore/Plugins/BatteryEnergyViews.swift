@@ -27,7 +27,12 @@ struct BatteryPowerFlow: Equatable {
         system = valid(stats.systemLoadWatts) ?? valid(snapshot.sensors.systemWatts)
             ?? incoming.flatMap { source in batteryWatts.map { external ? max(0, source - $0) : source } }
         let domains = [snapshot.soc.cpuWatts, snapshot.soc.gpuWatts, snapshot.soc.aneWatts].compactMap(valid)
-        chip = valid(snapshot.appEnergy.chipWatts) ?? (domains.isEmpty ? nil : domains.reduce(0, +))
+        let recentEstimate = snapshot.appEnergy.sampledAt.map { Date().timeIntervalSince($0) <= 90 } ?? true
+        // A zero/unavailable CPU domain must not turn GPU-only power into a
+        // purported whole-chip reading when the cached minute is stale.
+        let fullLiveReading = (snapshot.soc.cpuWatts ?? 0) > 0
+        chip = (recentEstimate ? valid(snapshot.appEnergy.chipWatts) : nil)
+            ?? (fullLiveReading && !domains.isEmpty ? domains.reduce(0, +) : nil)
         display = valid(snapshot.sensors.displayWatts)
         if let system, let chip, let display, system >= chip + display {
             other = system - chip - display
@@ -146,6 +151,29 @@ struct BatteryPowerFlowCard: View {
     }
 }
 
+struct BatteryHardwareEnergyCard: View {
+    let snapshot: SystemSnapshot
+    @Environment(\.deckTheme) private var theme
+
+    var body: some View {
+        let flow = BatteryPowerFlow(snapshot: snapshot)
+        DeckCard {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    DeckTitle(DeckL("硬件与系统", "Hardware and system"))
+                    Spacer()
+                    Text(DeckL("实时功率", "Live power")).font(.system(size: 10)).foregroundStyle(theme.secondary)
+                }
+                DeckInfoRow(DeckL("内置屏幕", "Built-in display"), Format.watts(flow.display))
+                DeckInfoRow(DeckL("其他硬件与系统", "Other hardware and system"), flow.other.map { "≈ " + Format.watts($0) } ?? "—")
+                Text(DeckL("其他项为整机扣除芯片与屏幕后的余量估算；风扇暂无独立功耗读数。", "Other power is the estimated remainder after chip and display power. A separate fan-power reading is unavailable."))
+                    .font(.system(size: 9)).foregroundStyle(theme.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityIdentifier("battery.hardware-energy")
+    }
+}
+
 struct BatteryAppEnergyCard: View {
     let energy: AppEnergyStats
     let battery: BatteryStats
@@ -157,11 +185,11 @@ struct BatteryAppEnergyCard: View {
                 HStack {
                     DeckTitle(DeckL("App 能耗", "App energy"))
                     Spacer()
-                    Text(DeckL("约 % / 小时", "Est. % / hour"))
-                        .font(.system(size: 10)).foregroundStyle(theme.secondary)
+                    Text(totalRate).font(.system(size: 11, weight: .medium)).monospacedDigit().foregroundStyle(theme.primary)
+                        .help(DeckL("所有可归属 App 的合计，包含列表外的 App；不含硬件与共享系统耗电。", "Total for all attributable apps, including apps outside this list; excludes shared hardware and system power."))
                 }
                 if energy.state == .warmingUp {
-                    Text(DeckL("正在采样，几秒后显示…", "Sampling — results in a few seconds…"))
+                    Text(DeckL("首次采样正在积累 1 分钟数据，之后打开直接显示缓存。", "Collecting the first minute. Reopening will show cached results immediately."))
                         .font(.system(size: 11)).foregroundStyle(theme.secondary)
                 } else if energy.state == .unavailable {
                     Text(DeckL("当前系统未提供可读取的 App 能耗。", "App energy counters are unavailable on this system."))
@@ -190,14 +218,34 @@ struct BatteryAppEnergyCard: View {
                     .help(Format.watts(entry.watts))
                 }
                 if energy.state == .ready {
-                    Text(DeckLF("近 %lld 秒平均 · 接电时按电池等效耗电估算", "Average over %lld s · battery-equivalent rate while plugged in", Int64(energy.seconds.rounded())))
+                    Text(sampleDescription)
                         .font(.system(size: 9)).foregroundStyle(theme.secondary)
                 }
-                Text(DeckL("含辅助进程的 CPU / GPU / 神经引擎能耗；不含屏幕等共享耗电。百分比按满充容量与电压换算。", "CPU / GPU / Neural Engine energy, including helpers; excludes shared loads such as the display. Percent uses full-charge capacity and voltage."))
+                Text(DeckL("含辅助进程的 CPU / GPU / 神经引擎能耗；不含屏幕、风扇等共享耗电。接电时为电池等效估算。", "CPU / GPU / Neural Engine energy including helpers; excludes shared loads such as the display and fans. Rates are battery-equivalent estimates while plugged in."))
                     .font(.system(size: 9)).foregroundStyle(theme.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
         .accessibilityIdentifier("battery.app-energy")
+    }
+
+    private var totalRate: String {
+        guard let percent = AppEnergyEntry.percentPerHour(watts: energy.appWatts, battery: battery) else {
+            return DeckL("1h 耗电 —", "1h drain —")
+        }
+        if percent < 0.01 { return DeckL("1h 耗电 <0.01%", "1h drain <0.01%") }
+        return String(format: DeckL("1h 耗电 ≈ %.2f%%", "1h drain ≈ %.2f%%"), percent)
+    }
+
+    private var sampleDescription: String {
+        let average = energy.seconds >= 55 ? DeckL("1 分钟平均", "1-minute average")
+            : DeckLF("平均 %lld 秒", "Average over %lld s", Int64(energy.seconds.rounded()))
+        guard let date = energy.sampledAt else { return average }
+        let age = max(0, Date().timeIntervalSince(date))
+        let updated: String
+        if age < 60 { updated = DeckL("刚刚更新", "Updated just now") }
+        else if age < 3_600 { updated = DeckLF("%lld 分钟前更新", "Updated %lld min ago", Int64(age / 60)) }
+        else { updated = DeckLF("%lld 小时前更新", "Updated %lld h ago", Int64(age / 3_600)) }
+        return average + " · " + updated
     }
 
     private func rate(_ entry: AppEnergyEntry) -> String {

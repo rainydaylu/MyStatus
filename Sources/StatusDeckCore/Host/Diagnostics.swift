@@ -4,6 +4,7 @@ import CoreAudio
 import CoreGraphics
 import CPrivateAPI
 import Foundation
+import Darwin
 
 /// `--diagnose-audio`: prints what every display and audio device actually answers.
 /// With `--write`, nudges each display's volume and reads it back, then restores it.
@@ -11,16 +12,30 @@ enum Diagnostics {
     static func runBattery() {
         let reader = AppEnergyReader()
         let battery = BatteryReader()
+        let smc = SMCClient()
+        func cpuSeconds() -> Double {
+            var usage = rusage()
+            getrusage(RUSAGE_SELF, &usage)
+            return Double(usage.ru_utime.tv_sec + usage.ru_stime.tv_sec)
+                + Double(usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1_000_000
+        }
+        var cpuTimes: [Double] = []
         for index in 0..<4 {
             let start = ProcessInfo.processInfo.systemUptime
+            let cpuStart = cpuSeconds()
             let stats = reader.read()
+            let readMilliseconds = (ProcessInfo.processInfo.systemUptime - start) * 1_000
+            let cpuMilliseconds = (cpuSeconds() - cpuStart) * 1_000
+            cpuTimes.append(cpuMilliseconds)
             let pack = battery.read()
-            print("sample=\(index) state=\(stats.state) seconds=\(stats.seconds) read_ms=\((ProcessInfo.processInfo.systemUptime - start) * 1_000) capacity_Wh=\(pack.estimatedFullChargeWattHours ?? -1) chip_W=\(stats.chipWatts ?? -1)")
+            print("sample=\(index) state=\(stats.state) seconds=\(stats.seconds) read_ms=\(readMilliseconds) cpu_ms=\(cpuMilliseconds) capacity_Wh=\(pack.estimatedFullChargeWattHours ?? -1) chip_W=\(stats.chipWatts ?? -1) package_W=\(smc?.read("PHPC") ?? -1)")
             for entry in stats.entries {
                 print("  \(entry.name): \(entry.watts) W, \(entry.percentPerHour(battery: pack) ?? -1) %/h")
             }
             if index < 3 { Thread.sleep(forTimeInterval: 3) }
         }
+        let mean = cpuTimes.reduce(0, +) / Double(cpuTimes.count)
+        print("mean_cpu_ms_per_read=\(mean) projected_background_cpu_s_per_hour=\(mean * 24 / 1_000) projected_foreground_cpu_s_per_hour=\(mean * 60 / 1_000)")
     }
 
     static func runCPU() {

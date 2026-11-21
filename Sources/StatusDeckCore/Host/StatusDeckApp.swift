@@ -364,10 +364,11 @@ final class SnapshotRenderer {
         let plugins = host.manager.entries.compactMap(\.plugin).sorted { $0.manifest.sortOrder < $1.manifest.sortOrder }
         let sections = plugins.flatMap(\.sections)
         var batterySnapshot = host.services.store.snapshot
-        batterySnapshot.appEnergy = batteryEnergy.read()
+        batterySnapshot.appEnergy = AppEnergyResultCache.standard.load() ?? batteryEnergy.read()
         for (scheme, label) in [(ColorScheme.dark, "dark"), (ColorScheme.light, "light")] {
             render(VStack(spacing: DeckTheme.cardSpacing) {
                 BatteryPowerFlowCard(snapshot: batterySnapshot)
+                BatteryHardwareEnergyCard(snapshot: batterySnapshot)
                 BatteryAppEnergyCard(energy: batterySnapshot.appEnergy, battery: batterySnapshot.battery)
             }.padding(12).frame(width: DeckTheme.flyoutWidth + 24), scheme: scheme, name: "\(label)-battery-energy")
             if let clipboard = plugins.compactMap({ $0 as? ClipboardPlugin }).first {
@@ -399,6 +400,8 @@ final class SnapshotRenderer {
     private func render<Content: View>(_ view: Content, scheme: ColorScheme, name: String) {
         let themed = DeckThemeRoot { view }
             .environment(\.colorScheme, scheme)
+            .environment(\.isEnabled, true)
+            .environment(\.controlActiveState, .active)
             .environment(\.deckUsesGlass, false)
             .background(scheme == .dark ? Color(white: 0.32) : Color(white: 0.84))
         let renderer = ImageRenderer(content: themed)

@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <em>v1.3.5 · Apple silicon Macs (M1 or newer) · macOS 13 or later</em>
+  <em>v1.3.6 · Apple silicon Macs (M1 or newer) · macOS 13 or later</em>
   <br>
   <a href="README.zh-CN.md">简体中文</a>
 </p>
@@ -61,7 +61,7 @@ Start with **Memory**, **Displays**, or **Sound**. The main panel shows the read
 | **Memory** | The two rings show memory pressure and memory use. If your Mac feels slow, start with pressure. It shows how hard macOS is working to make room for your apps. The detail view breaks down app, wired, and compressed memory and shows swap use. |
 | **Disk** | See how much space is available and how quickly the disk is reading or writing. Hover over the card to check individual volumes, per-process disk activity where available, and read/write history. |
 | **Network** | See your current upload and download rates and their recent history. The detail pane shows traffic totals since launch, the active interfaces, and network activity by process where available. |
-| **Sensors and battery** | Check temperatures, fan speeds, charge, and battery health when your Mac reports them. Hover over a fan or sensor reading for its history. Battery details show cycle count, a compact power-flow diagram in the second card, and a bottom list of the top five apps by estimated battery percent per hour. Rates average up to 30 seconds of CPU/GPU/Neural Engine energy, including helpers; display and shared-system energy are excluded. |
+| **Sensors and battery** | Check temperatures, fan speeds, charge, and battery health when your Mac reports them. Hover over a fan or sensor reading for its history. Battery details show cycle count, a compact power-flow diagram in the second card, and a bottom list of the top five apps by estimated battery percent per hour. App rates use a one-minute CPU/GPU/Neural Engine energy average, including helpers. Cached results open immediately, with an update time and a total estimated 1h drain in the header. While hidden, one one-minute measurement is taken every five minutes; battery details update every minute while open. Display and other shared hardware power are listed separately; individual fan watts are unavailable. |
 
 In a detail pane, hover over a supported chart or reading to open a larger history view. Choose a time range from 1 minute to 5 hours where available, then move the pointer over the chart to inspect a sample.
 

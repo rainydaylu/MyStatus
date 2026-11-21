@@ -841,7 +841,7 @@ final class BatteryPlugin: BuiltInPlugin {
     }
 
     override func didActivate() {
-        services.store.sampler.setInterest(owner: manifest.id, always: [.battery], whilePanelVisible: [.sensors, .soc])
+        services.store.sampler.setInterest(owner: manifest.id, always: [.battery, .appEnergy], whilePanelVisible: [.sensors, .soc])
     }
 
     override func willDeactivate() {
@@ -957,6 +957,7 @@ private struct BatteryDetail: View {
                     }
                 }
             }
+            BatteryHardwareEnergyCard(snapshot: store.snapshot)
             BatteryAppEnergyCard(energy: store.snapshot.appEnergy, battery: battery)
         }
         .onAppear {
