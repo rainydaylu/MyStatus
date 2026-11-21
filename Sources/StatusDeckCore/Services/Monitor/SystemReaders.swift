@@ -459,6 +459,10 @@ struct BatteryReader {
         stats.designCapacity = number("DesignCapacity") { $0 > 1 }
         stats.fullChargeCapacity = number("NominalChargeCapacity") { $0 > 1 }
             ?? number("AppleRawMaxCapacity") { $0 > 1 }
+        stats.currentChargeCapacity = number("AppleRawCurrentCapacity") { $0 >= 0 }
+            ?? number("RemainingCapacity") { $0 >= 0 }
+        stats.rawFullChargeCapacity = number("AppleRawMaxCapacity") { $0 > 1 }
+            ?? number("FullChargeCapacity") { $0 > 1 }
         stats.healthCondition = (powerSource?[kIOPSBatteryHealthConditionKey] as? String)
             ?? (powerSource?[kIOPSBatteryHealthKey] as? String)
         let cellMillivolts = (data["CellVoltage"] as? [Int]) ?? (registry["CellVoltage"] as? [Int]) ?? []

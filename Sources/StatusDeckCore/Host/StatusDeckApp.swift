@@ -160,6 +160,7 @@ final class HostController: DeckHost {
 
     func stop() {
         manager.stop()
+        services.store.sampler.flushBatteryRecords()
     }
 
     // MARK: - DeckHost

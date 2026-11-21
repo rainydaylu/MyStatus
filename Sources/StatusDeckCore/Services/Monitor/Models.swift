@@ -203,6 +203,8 @@ struct BatteryStats: Equatable, Sendable {
     var cycleCount: Int?
     var designCapacity: Int?
     var fullChargeCapacity: Int?
+    var currentChargeCapacity: Int?
+    var rawFullChargeCapacity: Int?
     var healthCondition: String?
     var cellVolts: [Double?] = []
     /// Full-charge capacity against design capacity, 0...1.
@@ -215,6 +217,16 @@ struct BatteryStats: Equatable, Sendable {
     var systemLoadWatts: Double?
     var nominalVolts: Double?
     var isLowPowerMode = false
+    var energyCalibrationFactor = 1.0
+    var energyCalibrationDate: Date?
+
+    var measuredPercent: Double {
+        if let current = currentChargeCapacity, let full = rawFullChargeCapacity,
+           current >= 0, full > 1 {
+            return min(100, max(0, Double(current) / Double(full) * 100))
+        }
+        return Double(percent)
+    }
 
     var watts: Double? {
         guard let volts, let amps else { return nil }

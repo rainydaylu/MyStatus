@@ -6,8 +6,11 @@ import Foundation
 @MainActor
 final class SharedServices {
     let isDryRun: Bool
-    init(isDryRun: Bool = false) { self.isDryRun = isDryRun }
-    let store = SystemStore()
+    init(isDryRun: Bool = false) {
+        self.isDryRun = isDryRun
+        self.store = SystemStore(recordsBatteryHistory: !isDryRun)
+    }
+    let store: SystemStore
 
     private(set) lazy var displays = DisplayController()
     private(set) lazy var audio = AudioController()

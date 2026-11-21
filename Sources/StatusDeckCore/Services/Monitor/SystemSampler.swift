@@ -31,6 +31,9 @@ final class SystemSampler {
     private var interval: TimeInterval = 1
     private var tick = 0
     private var snapshot = SystemSnapshot()
+    private var lastBatteryRead: TimeInterval = -.infinity
+    private let recordsBatteryHistory: Bool
+    private lazy var batteryLearning = BatteryLearningStore()
 
     private let cpu = CPUReader()
     private let gpu = GPUReader()
@@ -49,6 +52,24 @@ final class SystemSampler {
     private lazy var temperatures = TemperatureReader()
     private lazy var smc = SMCClient()
     private lazy var ioReport = IOReportReader()
+
+    init(recordsBatteryHistory: Bool = true) { self.recordsBatteryHistory = recordsBatteryHistory }
+
+    func flushBatteryRecords() {
+        guard recordsBatteryHistory else { return }
+        queue.sync { batteryLearning.flush() }
+    }
+
+    private func readBattery() {
+        lastBatteryRead = ProcessInfo.processInfo.systemUptime
+        var value = battery.read()
+        if recordsBatteryHistory, always.values.contains(where: { $0.contains(.appEnergy) }) {
+            batteryLearning.observe(value)
+        }
+        value.energyCalibrationFactor = batteryLearning.model.factor
+        value.energyCalibrationDate = batteryLearning.model.fittedAt
+        snapshot.battery = value
+    }
 
     /// What this owner wants. An owner with empty sets has effectively withdrawn.
     func setInterest(owner: String, always newAlways: Metric = [], whilePanelVisible newVisible: Metric = []) {
@@ -83,7 +104,7 @@ final class SystemSampler {
 
     func refreshBattery() {
         queue.async { [self] in
-            snapshot.battery = battery.read()
+            readBattery()
             snapshot.sampledMetrics = [.battery]
             onSample?(snapshot)
         }
@@ -128,7 +149,7 @@ final class SystemSampler {
         if metrics.contains(.network) { snapshot.network = network.read() }
         // Slow-changing values are spaced out by multiples of the tick.
         if metrics.contains(.battery) {
-            if tick % (isPanelVisible ? 5 : 30) == 0 { snapshot.battery = battery.read() }
+            if ProcessInfo.processInfo.systemUptime - lastBatteryRead >= (isPanelVisible ? 5 : 30) { readBattery() }
             else { snapshot.sampledMetrics.remove(.battery) }
         }
         if metrics.contains(.gpu) { snapshot.gpu = gpu.read() }
@@ -225,11 +246,12 @@ final class SystemStore: ObservableObject {
     @Published private(set) var snapshot = SystemSnapshot()
     @Published private(set) var history = History()
 
-    let sampler = SystemSampler()
+    let sampler: SystemSampler
     let processTransfers = ProcessTransferMonitor()
     private var isPanelVisible = false
 
-    init() {
+    init(recordsBatteryHistory: Bool = true) {
+        sampler = SystemSampler(recordsBatteryHistory: recordsBatteryHistory)
         sampler.onSample = { [weak self] snapshot in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { self?.receive(snapshot) }

@@ -14,7 +14,9 @@ struct AppEnergyEntry: Identifiable, Equatable, Sendable, Codable {
 
     static func percentPerHour(watts: Double?, battery: BatteryStats) -> Double? {
         guard let watts, watts.isFinite, watts >= 0, let capacity = battery.estimatedFullChargeWattHours else { return nil }
-        return watts / capacity * 100
+        let factor = battery.energyCalibrationFactor
+        let validFactor = factor.isFinite && (0.5...1.5).contains(factor) ? factor : 1
+        return watts / capacity * 100 * validFactor
     }
 }
 

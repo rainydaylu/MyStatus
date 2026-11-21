@@ -223,6 +223,16 @@ struct BatteryAppEnergyCard: View {
                 }
                 Text(DeckL("含辅助进程的 CPU / GPU / 神经引擎能耗；不含屏幕、风扇等共享耗电。接电时为电池等效估算。", "CPU / GPU / Neural Engine energy including helpers; excludes shared loads such as the display and fans. Rates are battery-equivalent estimates while plugged in."))
                     .font(.system(size: 9)).foregroundStyle(theme.secondary).fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Text(battery.energyCalibrationDate == nil
+                         ? DeckL("校准：等待放电样本", "Calibration: waiting for discharge data")
+                         : DeckL("已按真实放电记录校准", "Calibrated from measured discharge"))
+                        .foregroundStyle(theme.secondary)
+                    Spacer()
+                    Button(DeckL("电量记录", "Battery records")) {
+                        NSWorkspace.shared.open(BatteryLearningStore.standardFolder)
+                    }.buttonStyle(.link)
+                }.font(.system(size: 9))
             }
         }
         .accessibilityIdentifier("battery.app-energy")
