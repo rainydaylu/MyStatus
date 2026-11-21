@@ -22,7 +22,8 @@ struct FanControls: View {
                 if id != ids.first { Divider().padding(.vertical, detailed ? 4 : 2) }
                 let reading = readings.first { $0.id == id }
                 if let fan = controller.targets.first(where: { $0.id == id }), let range = fan.bounds {
-                    FanSpeedRow(fan: fan, range: range, controller: controller, compact: !detailed) {
+                    FanSpeedRow(fan: fan, range: range, controller: controller, compact: !detailed,
+                                readingRPM: reading?.rpm, historyStore: historyStore) {
                         historyLabel(id: id) { title in
                             FanReadout(title: title, rpm: fan.currentSpeed.map(Double.init) ?? reading?.rpm,
                                        fraction: Double(fan.currentSpeed ?? 0) / Double(range.upperBound),
@@ -93,6 +94,8 @@ private struct FanSpeedRow<Label: View>: View {
     let range: ClosedRange<Int>
     @ObservedObject var controller: FanController
     let compact: Bool
+    let readingRPM: Double?
+    let historyStore: SystemStore?
     @ViewBuilder let label: () -> Label
     @State private var draft: Double?
     @State private var isEditing = false
@@ -102,9 +105,11 @@ private struct FanSpeedRow<Label: View>: View {
         Double(fan.clamp(fan.isManual ? fan.targetSpeed : (fan.currentSpeed ?? range.lowerBound)) ?? range.lowerBound)
     }
 
+    private var showsRestore: Bool { fan.isManual || draft != nil }
+
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 5 : 10) {
-            label()
+            if compact { compactHeader } else { label() }
             HStack {
                 Text(DeckL("目标转速", "Target speed")).font(.system(size: compact ? 10 : 11)).foregroundStyle(theme.secondary)
                 Spacer()
@@ -124,16 +129,7 @@ private struct FanSpeedRow<Label: View>: View {
                 Text("\(range.upperBound) RPM")
             }
             .font(.system(size: 9).monospacedDigit()).foregroundStyle(theme.secondary)
-            Button {
-                draft = nil
-                controller.automatic(fan)
-            } label: {
-                SwiftUI.Label(DeckL("恢复自动", "Return to Auto"), systemImage: "arrow.triangle.2.circlepath")
-                    .font(.system(size: compact ? 11 : 13, weight: .medium))
-                    .frame(maxWidth: .infinity).padding(.vertical, compact ? 1 : 5)
-            }
-            .buttonStyle(.bordered).controlSize(compact ? .regular : .large)
-            .accessibilityIdentifier("fan.\(fan.id).automatic")
+            if !compact, showsRestore { restoreButton }
         }
         .disabled(controller.isBusy)
         .padding(.vertical, compact ? 1 : 4)
@@ -151,6 +147,61 @@ private struct FanSpeedRow<Label: View>: View {
             } catch { /* A newer gesture or leaving the view cancels the pending change. */ }
         }
     }
+
+    private var compactHeader: some View {
+        HStack(spacing: 7) {
+            Text(DeckLF("风扇 %ld", "Fan %ld", fan.id + 1))
+                .font(.system(size: 11, weight: .medium)).foregroundStyle(theme.primary)
+            if showsRestore {
+                restoreButton
+            } else {
+                Text(DeckL("系统自动", "System Auto"))
+                    .font(.system(size: 10)).foregroundStyle(theme.secondary)
+            }
+            Spacer(minLength: 4)
+            compactReading
+        }.frame(height: 24)
+    }
+
+    @ViewBuilder
+    private var compactReading: some View {
+        if let historyStore {
+            PanelDrilldownLink(id: "fan.rpm.\(fan.id)", title: DeckLF("风扇 %ld", "Fan %ld", fan.id + 1)) {
+                rpmLabel
+            } detail: {
+                SensorHistoryView(store: historyStore, title: DeckLF("风扇 %ld", "Fan %ld", fan.id + 1),
+                                  source: \.sensors, measure: { $0.fans.first { $0.id == fan.id }?.rpm },
+                                  format: { $0.map { "\(Int($0.rounded())) RPM" } ?? "—" })
+            }.fixedSize()
+        } else {
+            rpmLabel
+        }
+    }
+
+    private var rpmLabel: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 3) {
+            Text((fan.currentSpeed.map(Double.init) ?? readingRPM).map { "\(Int($0.rounded()))" } ?? "—")
+                .font(.system(size: 15, weight: .medium, design: .rounded)).monospacedDigit().foregroundStyle(theme.primary)
+            Text("RPM").font(.system(size: 9)).foregroundStyle(theme.secondary)
+        }
+    }
+
+    private var restoreButton: some View {
+        Button {
+            draft = nil
+            controller.automatic(fan)
+        } label: {
+            if compact {
+                Text(DeckL("恢复自动", "Return to Auto")).font(.system(size: 10, weight: .medium))
+            } else {
+                SwiftUI.Label(DeckL("恢复自动", "Return to Auto"), systemImage: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(maxWidth: .infinity).padding(.vertical, 5)
+            }
+        }
+        .buttonStyle(.bordered).controlSize(compact ? .small : .large)
+        .accessibilityIdentifier("fan.\(fan.id).automatic")
+    }
 }
 
 private struct FanReadout: View {
@@ -163,12 +214,19 @@ private struct FanReadout: View {
 
     var body: some View {
         HStack(spacing: compact ? 7 : 10) {
-            DeckRing(value: fraction, color: theme.accent, lineWidth: compact ? 2 : 3) {
-                Image(systemName: "fanblades.fill").font(.system(size: compact ? 14 : 20)).foregroundStyle(theme.accent)
-            }.frame(width: compact ? 28 : 44, height: compact ? 28 : 44)
-            VStack(alignment: .leading, spacing: compact ? 2 : 4) {
+            if !compact {
+                DeckRing(value: fraction, color: theme.accent, lineWidth: 3) {
+                    Image(systemName: "fanblades.fill").font(.system(size: 20)).foregroundStyle(theme.accent)
+                }.frame(width: 44, height: 44)
+            }
+            if compact {
+                Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(theme.primary)
+                Text(mode).font(.system(size: 10)).foregroundStyle(theme.secondary)
+            } else {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.system(size: compact ? 11 : 12, weight: .medium)).foregroundStyle(theme.primary)
                 Text(mode).font(.system(size: compact ? 9 : 10)).foregroundStyle(theme.secondary)
+            }
             }
             Spacer(minLength: 5)
             HStack(alignment: .firstTextBaseline, spacing: 3) {
