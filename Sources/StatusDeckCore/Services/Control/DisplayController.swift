@@ -261,6 +261,26 @@ enum DisplayServicesAPI {
 }
 
 @MainActor
+final class DisplayShadeWindow: NSWindow {
+    init(frame: NSRect) {
+        super.init(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        isReleasedWhenClosed = false
+        backgroundColor = .black
+        isOpaque = false
+        ignoresMouseEvents = true
+        hasShadow = false
+        hidesOnDeactivate = false
+        // Some IMEs (including WeType) place candidates above the display shield.
+        // Cover those windows too; the overlay remains non-key and click-through.
+        level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.cursorWindow)))
+        collectionBehavior = [.stationary, .canJoinAllSpaces, .ignoresCycle, .fullScreenAuxiliary]
+    }
+
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
+@MainActor
 final class DisplayController: ObservableObject {
     @Published private(set) var displays: [DisplayState] = []
     @Published private(set) var isReading = false
@@ -569,14 +589,7 @@ final class DisplayController: ObservableObject {
         }) else { return }
 
         let window = shades[id] ?? {
-            let window = NSWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            window.backgroundColor = .black
-            window.isOpaque = false
-            window.ignoresMouseEvents = true
-            window.hasShadow = false
-            window.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
-            window.collectionBehavior = [.stationary, .canJoinAllSpaces, .ignoresCycle, .fullScreenAuxiliary]
+            let window = DisplayShadeWindow(frame: screen.frame)
             shades[id] = window
             return window
         }()
