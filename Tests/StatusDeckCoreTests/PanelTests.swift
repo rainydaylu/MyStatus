@@ -242,7 +242,21 @@ struct PanelLayoutTests {
         let glass = try #require(glasses.first)
         #expect(glass.convert(glass.bounds, to: host) == CGRect(x: 24, y: 24, width: 300, height: 120))
         #expect(glass.layer?.masksToBounds == true)
-        #expect(glass.alphaValue == 0.25)
+        #expect(glass.alphaValue == 1)
+        #expect(glass.style == .clear)
+        func frostedViews(in view: NSView) -> [NSVisualEffectView] {
+            let children = view.subviews.flatMap { frostedViews(in: $0) }
+            return (view as? NSVisualEffectView).map { [$0] + children } ?? children
+        }
+        // Clear glass must still have real behind-window blur, independently
+        // of the card's tint and the glass rim.
+        let frost = try #require(frostedViews(in: host).first { $0.material == .hudWindow })
+        #expect(frost.blendingMode == .behindWindow)
+        #expect(frost.state == .active)
+        #expect(frost.alphaValue == 0.25)
+        #expect(frost.convert(frost.bounds, to: host) == CGRect(x: 24, y: 24, width: 300, height: 120))
+        #expect(MenuPanelSurface.glassWashOpacity(translucency: 1, isDark: false) == 0)
+        #expect(MenuPanelSurface.glassWashOpacity(translucency: 1, isDark: true) == 0)
     }
 
     @MainActor

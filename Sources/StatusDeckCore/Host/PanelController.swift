@@ -104,21 +104,37 @@ struct MenuPanelSurface: View {
         return midpoint + (minimum - midpoint) * (amount - 0.5) * 2
     }
 
+    static func glassWashOpacity(translucency: Double, isDark: Bool) -> Double {
+        // At 100%, show the native material without an extra painted fill.
+        let amount = min(1, max(0, translucency))
+        return washOpacity(translucency: amount, isDark: isDark) * (1 - amount)
+    }
+
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         let isDark = colorScheme == .dark
         let wash = Color(white: Self.washGray(isDark: isDark))
+        let nativeGlass: Bool = {
+            if #available(macOS 26.0, *) { return usesGlass }
+            return false
+        }()
+        let washAmount = nativeGlass
+            ? Self.glassWashOpacity(translucency: translucency, isDark: isDark)
+            : Self.washOpacity(translucency: translucency, isDark: isDark)
         Group {
             if reduceTransparency || translucency <= 0 {
                 shape.fill(theme.cardTop)
             } else {
                 // Keep a tint underneath labels as more of the backdrop is revealed.
-                shape.fill(wash.opacity(Self.washOpacity(translucency: translucency, isDark: isDark)))
+                shape.fill(wash.opacity(washAmount))
                     .background {
                         if usesGlass {
                             if #available(macOS 26.0, *) {
-                                NativeMenuGlass(cornerRadius: cornerRadius, isDark: isDark,
-                                                isClear: translucency >= 0.85, intensity: blur)
+                                ZStack {
+                                    FrostedMenuSurface(cornerRadius: cornerRadius, intensity: blur,
+                                                       material: .hudWindow)
+                                    NativeMenuGlass(cornerRadius: cornerRadius, isDark: isDark)
+                                }
                             } else {
                                 FrostedMenuSurface(cornerRadius: cornerRadius, intensity: blur)
                             }
@@ -163,8 +179,6 @@ private struct MenuPanelShadow: View {
 private struct NativeMenuGlass: NSViewRepresentable {
     let cornerRadius: CGFloat
     let isDark: Bool
-    let isClear: Bool
-    let intensity: Double
 
     func makeNSView(context: Context) -> NSGlassEffectView {
         let view = NSGlassEffectView(frame: .zero)
@@ -176,19 +190,23 @@ private struct NativeMenuGlass: NSViewRepresentable {
 
     func updateNSView(_ view: NSGlassEffectView, context: Context) {
         view.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
-        view.style = isClear ? .clear : .regular
+        // Clear glass supplies refraction and highlights; the separate native
+        // backdrop supplies frosting without an opaque regular-glass fill.
+        view.style = .clear
         view.cornerRadius = cornerRadius
         view.layer?.cornerRadius = cornerRadius
-        view.alphaValue = min(1, max(0, intensity))
+        view.alphaValue = 1
     }
 }
 
 private struct FrostedMenuSurface: NSViewRepresentable {
     let cornerRadius: CGFloat
     let intensity: Double
+    var material: NSVisualEffectView.Material = .popover
+    @Environment(\.colorScheme) private var colorScheme
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = .popover
+        view.material = material
         view.blendingMode = .behindWindow
         view.state = .active
         view.wantsLayer = true
@@ -198,15 +216,25 @@ private struct FrostedMenuSurface: NSViewRepresentable {
     }
 
     func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.appearance = NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
         view.alphaValue = min(1, max(0, intensity))
     }
 }
 
 struct MenuPanelPalette: ViewModifier {
     @Environment(\.deckTheme) private var theme
+    @Environment(\.deckGlassStrength) private var translucency
+    @Environment(\.deckUsesGlass) private var usesGlass
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
-        content.environment(\.deckTheme, theme.isDark ? .controlCenter : .controlCenterLight)
+        // Like Control Center, clear controls use light labels and a dark native
+        // material. Preferences retain the user's chosen light/dark appearance.
+        let clearControls = DeckGlass.isSupported && usesGlass && !reduceTransparency && translucency >= 0.85
+        content
+            .environment(\.deckTheme, theme.isDark || clearControls ? .controlCenter : .controlCenterLight)
+            .environment(\.colorScheme, clearControls ? .dark : colorScheme)
     }
 }
 
