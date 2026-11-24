@@ -19,7 +19,7 @@ struct TransferActivityCard: View {
 
     var body: some View {
         let seconds = range.rawValue
-        let shown: Chart = hover.snapshot ?? (history, history.measuredBins(seconds: seconds, count: History.capacity))
+        let shown: Chart = hover.snapshot ?? (history, history.measuredBins(seconds: seconds, count: min(History.capacity, seconds)))
         let chart = shown.bars
         DeckCard {
             VStack(spacing: 9) {
@@ -113,6 +113,20 @@ struct TransferRateScale {
     }
 }
 
+enum TransferBarLayout {
+    static func rect(index: Int, count: Int, value: Double?, maximum: Double,
+                     upward: Bool, size: CGSize) -> CGRect? {
+        guard let value, value.isFinite, value > 0, maximum.isFinite, maximum > 0,
+              count > 0, (0..<count).contains(index), size.width > 0, size.height > 12 else { return nil }
+        let step = size.width / CGFloat(count)
+        let gap = min(1, step * 0.2)
+        let middle = size.height / 2
+        let height = min(1, value / maximum) * (middle - 6)
+        return CGRect(x: CGFloat(index) * step + gap / 2, y: upward ? middle - height : middle,
+                      width: step - gap, height: height)
+    }
+}
+
 struct TransferRatePlot: View {
     let upper: [Double?]
     let lower: [Double?]
@@ -153,40 +167,26 @@ struct TransferRatePlot: View {
                     grid.addLine(to: CGPoint(x: size.width, y: y))
                 }
                 context.stroke(grid, with: .color(theme.secondary.opacity(0.22)), lineWidth: 0.5)
-                for (values, scale, direction, color) in [(upper, firstScale.maximum, -1.0, theme.magenta),
-                                                         (lower, secondScale.maximum, 1.0, theme.accent)] {
-                    var line = Path()
-                    var area = Path()
-                    var lastPoint: CGPoint?
+                for (values, scale, upward, color) in [(upper, firstScale.maximum, true, theme.magenta),
+                                                      (lower, secondScale.maximum, false, theme.accent)] {
                     for (index, value) in values.enumerated() {
-                        guard let value else { continue }
-                        let x = size.width * CGFloat(index) / CGFloat(max(1, values.count - 1))
-                        let normalized = value.isFinite ? min(1, max(0, value / scale)) : 0
-                        let point = CGPoint(x: x, y: middle + direction * normalized * half)
-                        if lastPoint == nil {
-                            line.move(to: point)
-                            area.move(to: CGPoint(x: x, y: middle))
-                        } else { line.addLine(to: point) }
-                        area.addLine(to: point)
-                        lastPoint = point
+                        guard let bar = TransferBarLayout.rect(index: index, count: values.count,
+                                                               value: value, maximum: scale,
+                                                               upward: upward, size: size) else { continue }
+                        context.fill(Path(bar), with: .color(color.opacity(0.9)))
                     }
-                    guard let lastPoint else { continue }
-                    area.addLine(to: CGPoint(x: lastPoint.x, y: middle))
-                    area.closeSubpath()
-                    context.fill(area, with: .color(color.opacity(0.18)))
-                    context.stroke(line, with: .color(color), style: StrokeStyle(lineWidth: 1.4, lineJoin: .round))
                 }
             }
             .overlay {
                 if let pointer, pointer.x >= axisWidth + 5, let history {
                     let plotPointer = CGPoint(x: pointer.x - axisWidth - 5, y: pointer.y)
                     ChartHoverOverlay(pointer: plotPointer, tooltipWidth: 143) { fraction in
-                        tooltip(history.sample(at: fraction, seconds: seconds, count: History.capacity))
+                        tooltip(history.sample(at: fraction, seconds: seconds, count: upper.count))
                     }
                 }
             }
         }
-        .accessibilityLabel(DeckL("上下两组曲线各用独立的纵轴刻度", "Each series uses its own vertical scale"))
+        .accessibilityLabel(DeckL("上下两组柱状图各用独立的纵轴刻度", "Each bar series uses its own vertical scale"))
     }
 
     private func tooltip(_ sample: TransferHistory.Sample?) -> some View {

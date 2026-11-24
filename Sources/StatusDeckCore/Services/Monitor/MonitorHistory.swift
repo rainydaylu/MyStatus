@@ -22,7 +22,8 @@ enum HistoryRange: Int, CaseIterable {
     }
 }
 
-/// The latest actual sample in each time slot. Missing intervals stay empty.
+/// The latest actual sample in each time slot. Gaps stay empty by default;
+/// slowly changing state can retain a recent measurement for a bounded time.
 struct MonitorHistory<Value: Equatable>: Equatable {
     struct Sample: Equatable {
         let time: TimeInterval
@@ -37,7 +38,8 @@ struct MonitorHistory<Value: Equatable>: Equatable {
         HistoryRange.prune(&samples, at: time, timestamp: \.time)
     }
 
-    func bins(seconds: Int, count: Int, endingAt end: TimeInterval? = nil) -> [Sample?] {
+    func bins(seconds: Int, count: Int, endingAt end: TimeInterval? = nil,
+              holdingFor maximumAge: TimeInterval? = nil) -> [Sample?] {
         guard seconds > 0, count > 0 else { return [] }
         var bins = [Sample?](repeating: nil, count: count)
         guard let end = end ?? samples.last?.time else { return bins }
@@ -45,6 +47,21 @@ struct MonitorHistory<Value: Equatable>: Equatable {
         for sample in samples.reversed().prefix(while: { $0.time >= start }) where sample.time <= end {
             let index = min(count - 1, Int((sample.time - start) / Double(seconds) * Double(count)))
             if bins[index] == nil { bins[index] = sample }
+        }
+        // Slow-changing state such as charge remains valid between normal reads.
+        // Keep the original measurement and its timestamp; never backfill from
+        // a future sample or extend the last state through a long sampling gap.
+        if let maximumAge, maximumAge.isFinite, maximumAge > 0 {
+            let width = Double(seconds) / Double(count)
+            var previous = samples.last { $0.time < start }
+            for index in bins.indices {
+                if let sample = bins[index] {
+                    previous = sample
+                } else if let sample = previous,
+                          start + Double(index + 1) * width - sample.time <= maximumAge {
+                    bins[index] = sample
+                }
+            }
         }
         return bins
     }

@@ -369,7 +369,20 @@ final class SnapshotRenderer {
         let sections = plugins.flatMap(\.sections)
         var batterySnapshot = host.services.store.snapshot
         batterySnapshot.appEnergy = AppEnergyResultCache.standard.load() ?? batteryEnergy.read()
+        // A full hour at the real background cadence makes chart gaps visible
+        // in snapshots without waiting an hour or changing persisted records.
+        var chargeHistory = MonitorHistory<BatteryStats>()
+        let chargeStart = Date().addingTimeInterval(-3_600)
+        for index in 0...60 {
+            var charge = batterySnapshot.battery
+            charge.percent = 92 - index / 5
+            chargeHistory.append(charge, at: Double(index * 60), date: chargeStart.addingTimeInterval(Double(index * 60)))
+        }
         for (scheme, label) in [(ColorScheme.dark, "dark"), (ColorScheme.light, "light")] {
+            render(MonitorHistoryCard(history: chargeHistory,
+                                      series: [.init(title: DeckL("电量"), color: .blue, format: Format.percent)],
+                                      values: { [Double($0.percent) / 100] }, maximum: 1, compact: true)
+                .padding(12).frame(width: DeckTheme.flyoutWidth + 24), scheme: scheme, name: "\(label)-battery-history-sample")
             render(VStack(spacing: DeckTheme.cardSpacing) {
                 DeckCard { BatteryChargeSummary(battery: batterySnapshot.battery) }
                 BatteryPowerFlowCard(snapshot: batterySnapshot)
@@ -380,7 +393,7 @@ final class SnapshotRenderer {
                 render(clipboard.browserSnapshot.frame(width: 400, height: 850), scheme: scheme, name: "\(label)-clipboard-shelf")
             }
             var transfer = TransferHistory()
-            for index in 0..<60 {
+            for index in 0...60 {
                 let phase = Double(index)
                 transfer.append(120_000 + 108_000 * abs(sin(phase * 0.23)),
                                 3_500_000 + 3_600_000 * abs(cos(phase * 0.17)), at: phase)
@@ -389,6 +402,10 @@ final class SnapshotRenderer {
                                         secondLabel: DeckL("下载"), first: 228_000, second: 7_100_000,
                                         history: transfer, floor: 64_000, expanded: true)
                 .padding(12).frame(width: DeckTheme.flyoutWidth + 24), scheme: scheme, name: "\(label)-transfer-scales")
+            render(TransferActivityCard(title: DeckL("磁盘活动", "Disk activity"), firstLabel: DeckL("读取"),
+                                        secondLabel: DeckL("写入"), first: 228_000, second: 7_100_000,
+                                        history: transfer, floor: 128_000, expanded: false)
+                .padding(12).frame(width: DeckTheme.flyoutWidth + 24), scheme: scheme, name: "\(label)-disk-bars-sample")
             let rows = PanelTileGrid(sections: sections, store: host.services.store, hover: PanelHoverModel(),
                                      onOpenSettings: {}, onOpenDetail: { _ in })
             render(rows.padding(12).frame(width: DeckTheme.panelWidth + 24), scheme: scheme, name: "\(label)-panel")

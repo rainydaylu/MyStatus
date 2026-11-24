@@ -107,7 +107,8 @@ struct MonitorHistoryCard<Value: Equatable>: View {
 
     var body: some View {
         let seconds = (compact ? HistoryRange.oneHour : range).rawValue
-        let bins = hover.snapshot ?? history.bins(seconds: seconds, count: History.capacity)
+        let bins = hover.snapshot ?? history.bins(seconds: seconds, count: History.capacity,
+                                                  holdingFor: compact ? 90 : nil)
         let plotted = bins.map { sample in sample.map { values($0.value) } ?? [] }
         DeckCard {
             VStack(alignment: .leading, spacing: 7) {

@@ -23,7 +23,7 @@ struct TransferHistory: Equatable {
         return (samples.first.map { $0 ?? 0 }, samples.second.map { $0 ?? 0 })
     }
 
-    /// Missing slots are not zero-rate measurements. Curves join recorded points.
+    /// Missing slots are not zero-rate measurements; leave their bars empty.
     func measuredBins(seconds: Int, count: Int) -> (first: [Double?], second: [Double?]) {
         guard count > 0 else { return ([], []) }
         var first = [Double?](repeating: nil, count: count)
