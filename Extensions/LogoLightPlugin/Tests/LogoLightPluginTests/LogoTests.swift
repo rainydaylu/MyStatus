@@ -7,6 +7,21 @@ import Testing
 @testable import LogoLightHost
 
 @Suite struct LogoBehaviorTests {
+    @Test func lidQueriesAreSharedAcrossAnimationFramesAndInvalidatedOnResume() {
+        var cache = LogoLidCache()
+        var reads = 0
+        var closed = false
+        for tick in 0..<100 {
+            #expect(!cache.read(at: Double(tick) / 100) { reads += 1; return closed })
+        }
+        #expect(reads == 4)
+        closed = true
+        cache.invalidate()
+        #expect(cache.read(at: 0.99) { reads += 1; return closed })
+        #expect(reads == 5)
+        cache.invalidate()
+        #expect(cache.read(at: 1) { nil }, "An unreadable lid must fail closed")
+    }
     @Test func legacySettingsKeepTheirValuesWhenMorseIsAdded() throws {
         var p = LogoPreferences(); p.mode = .music; p.brightness = 0.31; p.musicGain = 1.7; p.keepClosed = true
         var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(p)) as? [String: Any])
@@ -149,11 +164,40 @@ import Testing
 @MainActor private final class FixtureSound: SoundLevelSource {
     var starts = 0; var stops = 0
     var loudness = 0.6
-    func start() throws { starts += 1 }
+    var shouldFail = false
+    func start() throws {
+        starts += 1
+        if shouldFail { throw CocoaError(.featureUnsupported) }
+    }
     func stop() { stops += 1 }
 }
 
 @MainActor @Suite struct LogoPluginContractTests {
+    @Test func inactiveAnimationUsesTheSlowTimerAndAudioRetryRestoresResponsiveness() async {
+        let domain = "logo.tests." + UUID().uuidString
+        let store = UserDefaults(suiteName: domain)!
+        defer { store.removePersistentDomain(forName: domain) }
+        let device = FixtureDevice(), sound = FixtureSound(), host = FixtureHost()
+        host.isDryRun = false
+        sound.shouldFail = true
+        let runtime = LogoRuntime(device: device, store: store, sound: sound, observesSystemEvents: false)
+        runtime.settings.mode = .music
+        runtime.start(host: host)
+        for _ in 0..<100 where !runtime.active { await Task.yield() }
+        #expect(runtime.pollingInterval == 1)
+        sound.shouldFail = false
+        runtime.retryAudio()
+        #expect(runtime.pollingInterval == 0.05)
+        runtime.setPaused(true, reason: .locked)
+        #expect(runtime.pollingInterval == 1)
+        #expect(device.pauses == 1)
+        runtime.setPaused(false, reason: .locked)
+        #expect(runtime.pollingInterval == 0.05)
+        runtime.settings.mode = .morse
+        #expect(runtime.pollingInterval == 1)
+        #expect(device.morse == "SOS")
+        runtime.stop()
+    }
     @Test func screenSleepBeforeLidEventKeepsLoopButLockAlwaysStopsIt() async {
         let domain = "logo.tests." + UUID().uuidString
         let store = UserDefaults(suiteName: domain)!

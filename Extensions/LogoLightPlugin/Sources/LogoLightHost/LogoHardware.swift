@@ -76,6 +76,21 @@ struct LogoRecoveryNote: Codable, Equatable {
     func recover() async throws
 }
 
+struct LogoLidCache {
+    private var measuredAt = -Double.infinity
+    private var value = true
+
+    mutating func read(at now: Double, reader: () -> Bool?) -> Bool {
+        if now < measuredAt || now - measuredAt >= 0.25 {
+            value = reader() ?? true
+            measuredAt = now
+        }
+        return value
+    }
+
+    mutating func invalidate() { measuredAt = -Double.infinity }
+}
+
 /// A new host/session implementation. Hardware fade mechanics come from MIT LogoLight.
 @MainActor final class LogoHardware: LogoOutputDevice {
     private let directory: URL
@@ -95,6 +110,7 @@ struct LogoRecoveryNote: Codable, Equatable {
     private var powerAssertions: [IOPMAssertionID] = []
     private var closedPowerActive = false
     private var lastObservedClosed: Bool?
+    private var lidCache = LogoLidCache()
     private var morseText: String?
     private lazy var morseAnimator: LogoAnimator? = emitter.map { emitter in
         LogoAnimator(emitter: emitter, isDisplayAwake: { [weak self] in
@@ -113,7 +129,9 @@ struct LogoRecoveryNote: Codable, Equatable {
     }
     var supported: Bool { reader.read().isSupported && native != nil }
     var hasRecovery: Bool { FileManager.default.fileExists(atPath: directory.appendingPathComponent("session.json").path) && record == nil }
-    var closed: Bool { reader.isLidClosed() ?? true }
+    var closed: Bool {
+        lidCache.read(at: ProcessInfo.processInfo.systemUptime) { reader.isLidClosed() }
+    }
 
     func begin() async throws {
         guard !running else { return }
@@ -189,12 +207,14 @@ struct LogoRecoveryNote: Codable, Equatable {
     }
 
     func pause() {
+        lidCache.invalidate()
         morseAnimator?.pause(); morseAnimator?.stopMorse(); morseText = nil
         suspended = true; worker?.cancel()
         emitter?.restore(displayAwake: false); emitter?.displayDidChange(isAwake: false)
         desired = .nan
     }
     func resume() {
+        lidCache.invalidate()
         suspended = false; emitter?.displayDidChange(isAwake: !closed)
         desired = .nan
     }

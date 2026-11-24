@@ -6,6 +6,38 @@ import Testing
 @MainActor
 @Suite("Combined menu bar button")
 struct StatusBarTests {
+    @Test func repeatedStatusBarReplicaDrawsReuseTheSameSourcePixels() throws {
+        var drawings = 0
+        let source = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { bounds in
+            drawings += 1
+            NSColor.systemRed.setFill(); bounds.fill()
+            return true
+        }
+        let combined = try #require(StatusBarGroup.image([source, solidImage(.black, size: NSSize(width: 8, height: 12))]))
+        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 48, pixelsHigh: 24,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        bitmap.size = combined.size
+        let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        combined.draw(in: NSRect(origin: .zero, size: combined.size))
+        let firstDrawings = drawings
+        #expect(firstDrawings > 0)
+        for _ in 0..<20 { combined.draw(in: NSRect(origin: .zero, size: combined.size)) }
+        #expect(drawings == firstDrawings, "Menu-bar replicas must not repeatedly draw the source")
+    }
+
+    @Test func readoutBitmapsSupportBothDisplayDensitiesAndKeepTemplateTinting() throws {
+        let image = StatusPillRenderer.image(for: .init(upload: "12 KB/s", download: "1 MB/s", cpu: "15%", memory: "50%"))
+        #expect(image.isTemplate)
+        let reps = image.representations.compactMap { $0 as? NSBitmapImageRep }
+        #expect(reps.count == 2)
+        #expect(Set(reps.map(\.pixelsHigh)) == [22, 44])
+        #expect(reps.allSatisfy { $0.size == image.size })
+        #expect(image.tiffRepresentation != nil)
+    }
     @Test func trioPrecedesReadoutsInOneGroupRegardlessOfPluginOrder() throws {
         let trio = DeckMenuBarItem()
         let readouts = DeckMenuBarItem()

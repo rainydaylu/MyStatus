@@ -21,6 +21,8 @@ import SwiftUI
     private let sound: SoundLevelSource?
     private weak var host: (any DeckHost)?
     private var timer: Timer?
+    private(set) var pollingInterval: TimeInterval = 1
+    private var batteryObserver: BatteryObserver?
     private var workspaceObservers: [NSObjectProtocol] = []
     private var agentObserver: NSObjectProtocol?
     private var keys: [any DeckHotKeyToken] = []
@@ -59,7 +61,14 @@ import SwiftUI
         guard !host.isDryRun, !stopped else { return }
         self.host = host
         guard supported else { return }
-        if observesSystemEvents { observeLifecycle() }
+        if observesSystemEvents {
+            observeLifecycle()
+            batteryObserver = BatteryObserver { [weak self] in
+                guard let self else { return }
+                self.lastBatteryRead = .distantPast
+                self.pump()
+            }
+        }
         agentObserver = NotificationCenter.default.addObserver(forName: .init("com.statusdeck.codingLight.changed"), object: nil, queue: .main) { [weak self] note in
             MainActor.assumeIsolated {
                 guard let self, let state = note.userInfo?["state"] as? String else { return }
@@ -133,7 +142,7 @@ import SwiftUI
     }
 
     func retryInput() { configureSources(authorizeTyping: true) }
-    func retryAudio() { audioAttempted = false; error = nil; configureSources() }
+    func retryAudio() { audioAttempted = false; error = nil; configureSources(); startTimer() }
 
     private func stopSources() {
         inputs.stop(); configuredInput = nil
@@ -141,8 +150,18 @@ import SwiftUI
     }
 
     private func startTimer() {
+        let animating: Bool
+        switch settings.mode {
+        case .steady, .morse: animating = false
+        case .music: animating = audioStarted
+        case .battery: animating = power?.isPluggedIn == true && power?.isCharging == true && batteryLevel < 0.995
+        case .agents: animating = agent != .idle
+        case .breathing, .trackpad, .typing: animating = true
+        }
+        let interval = settings.enabled && !paused && !lidPaused && animating ? 0.05 : 1.0
+        guard timer == nil || pollingInterval != interval else { return }
         timer?.invalidate()
-        let interval = settings.enabled && settings.mode != .steady ? 0.05 : 1.0
+        pollingInterval = interval
         let next = Timer(timeInterval: interval, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.pump() } }
         next.tolerance = interval * 0.1
         RunLoop.main.add(next, forMode: .common); timer = next
@@ -151,7 +170,9 @@ import SwiftUI
     func pump() {
         guard active, !stopped else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        if Date().timeIntervalSince(lastBatteryRead) > 1 {
+        // Power-source notifications update immediately; a slow fallback covers
+        // missed notifications without querying IOKit on every animation frame.
+        if Date().timeIntervalSince(lastBatteryRead) > 5 {
             batteryLevel = Battery.charge() ?? 0
             power = Battery.powerState(); lastBatteryRead = Date()
         }
@@ -167,6 +188,7 @@ import SwiftUI
             do { try device.allowClosed(false, until: nil) } catch { self.error = error.localizedDescription }
             if !paused { device.pause() }
             paused = true
+            startTimer()
             return
         }
         if paused { paused = false; device.resume(); configureSources() }
@@ -174,9 +196,11 @@ import SwiftUI
         catch { self.error = error.localizedDescription; return }
         if device.closed && !allowClosed {
             if !lidPaused { device.pause(); stopSources(); lidPaused = true }
+            startTimer()
             return
         }
         if lidPaused { lidPaused = false; device.resume(); configureSources() }
+        startTimer()
         if settings.enabled && settings.mode == .morse {
             let text = LogoMorse.transmittedText(settings.morseText)
             device.playMorse(MorseCode.canSend(text) ? text : nil)
@@ -252,7 +276,7 @@ import SwiftUI
 
     func stop() {
         guard !stopped else { return }
-        stopped = true; nativeStart?.cancel(); timer?.invalidate(); timer = nil; keys.removeAll(); stopSources()
+        stopped = true; nativeStart?.cancel(); timer?.invalidate(); timer = nil; batteryObserver = nil; keys.removeAll(); stopSources()
         workspaceObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }; workspaceObservers.removeAll()
         if let agentObserver { NotificationCenter.default.removeObserver(agentObserver) }; agentObserver = nil
         lockObservers.forEach { DistributedNotificationCenter.default().removeObserver($0) }; lockObservers.removeAll()
@@ -262,7 +286,7 @@ import SwiftUI
 
 @MainActor final class LogoPlugin: DeckPlugin {
     let manifest = PluginManifest(id: LogoPaths.id, name: "标志灯光", summary: "Apple 标志亮度、呼吸、电池、音乐、编程状态与输入互动。",
-                                  symbol: "lightbulb", version: "1.0.2", category: .tools, enabledByDefault: false, sortOrder: 400)
+                                  symbol: "lightbulb", version: "1.0.3", category: .tools, enabledByDefault: false, sortOrder: 400)
     private(set) var runtime: LogoRuntime?
     func activate(host: any DeckHost) {
         guard !host.isDryRun, runtime == nil else { return }

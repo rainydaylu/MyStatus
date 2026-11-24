@@ -299,7 +299,8 @@ enum StatusPillRenderer {
         let columns = [speedWidth, cpuWidth, memoryWidth].filter { $0 > 0 }
         let width = columns.reduce(0, +) + CGFloat(max(0, columns.count - 1)) * 5 + 14
 
-        let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { rect in
+        let size = NSSize(width: width, height: height)
+        let drawing: (NSRect) -> Bool = { rect in
             let pill = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 1.5), xRadius: 7, yRadius: 7)
             NSColor.black.withAlphaComponent(0.16).setFill()
             pill.fill()
@@ -327,6 +328,8 @@ enum StatusPillRenderer {
             }
             return true
         }
+        let image = MenuBarRaster.image(size: size, drawing: drawing)
+            ?? NSImage(size: size, flipped: false) { drawing($0) }
         image.isTemplate = true
         return image
     }

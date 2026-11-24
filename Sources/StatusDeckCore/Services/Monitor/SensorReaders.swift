@@ -15,10 +15,9 @@ final class TemperatureReader {
     private typealias CopyEvent = @convention(c) (CFTypeRef, Int64, Int32, Int64) -> Unmanaged<CFTypeRef>?
     private typealias GetFloat = @convention(c) (CFTypeRef, Int32) -> Double
 
-    private let copyProperty: CopyProperty
     private let copyEvent: CopyEvent
     private let getFloat: GetFloat
-    private let services: [CFTypeRef]
+    private let services: [(service: CFTypeRef, name: String)]
 
     private static let temperatureEvent: Int64 = 15
     private static let temperatureField: Int32 = 15 << 16
@@ -33,7 +32,7 @@ final class TemperatureReader {
               let getFloat = dlsym(handle, "IOHIDEventGetFloatValue") else {
             return nil
         }
-        self.copyProperty = unsafeBitCast(copyProperty, to: CopyProperty.self)
+        let readProperty = unsafeBitCast(copyProperty, to: CopyProperty.self)
         self.copyEvent = unsafeBitCast(copyEvent, to: CopyEvent.self)
         self.getFloat = unsafeBitCast(getFloat, to: GetFloat.self)
 
@@ -46,7 +45,13 @@ final class TemperatureReader {
               !list.isEmpty else {
             return nil
         }
-        services = list
+        // Product names do not change for a retained HID service. Resolve them
+        // once, and skip calibration-only services before requesting events.
+        services = list.compactMap { service in
+            guard let name = readProperty(service, "Product" as CFString)?.takeRetainedValue() as? String,
+                  Self.group(forSensor: name) != nil else { return nil }
+            return (service, name)
+        }
         // The services stay valid only while their client does.
         retainedClient = client
     }
@@ -55,9 +60,8 @@ final class TemperatureReader {
 
     func read() -> [TemperatureReading] {
         var samples: [String: [Double]] = [:]
-        for service in services {
-            guard let name = copyProperty(service, "Product" as CFString)?.takeRetainedValue() as? String,
-                  let event = copyEvent(service, Self.temperatureEvent, 0, 0)?.takeRetainedValue() else {
+        for (service, name) in services {
+            guard let event = copyEvent(service, Self.temperatureEvent, 0, 0)?.takeRetainedValue() else {
                 continue
             }
             let value = getFloat(event, Self.temperatureField)

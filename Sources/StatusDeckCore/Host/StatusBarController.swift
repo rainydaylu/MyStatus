@@ -179,7 +179,9 @@ struct StatusBarGroup {
         let gap: CGFloat = 4
         let size = NSSize(width: images.reduce(0) { $0 + $1.size.width } + gap * CGFloat(images.count - 1),
                           height: images.map(\.size.height).max() ?? 22)
-        let combined = NSImage(size: size, flipped: false) { bounds in
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 8
+        let drawing: (NSRect) -> Bool = { bounds in
             let isDark = NSAppearance.currentDrawing().bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             let tint: NSColor = isDark ? .white : .black
             var x: CGFloat = 0
@@ -197,6 +199,17 @@ struct StatusBarGroup {
                 NSGraphicsContext.restoreGraphicsState()
                 x += source.size.width + gap
             }
+            return true
+        }
+        let combined = NSImage(size: size, flipped: false) { bounds in
+            let scale = max(1, min(3, abs(NSGraphicsContext.current?.cgContext.ctm.a ?? 2)))
+            let key = "\(NSAppearance.currentDrawing().name.rawValue)-\(scale)" as NSString
+            if let raster = cache.object(forKey: key) {
+                raster.draw(in: bounds)
+            } else if let raster = MenuBarRaster.image(size: size, scales: [scale], drawing: drawing) {
+                cache.setObject(raster, forKey: key)
+                raster.draw(in: bounds)
+            } else { return drawing(bounds) }
             return true
         }
         combined.isTemplate = false
