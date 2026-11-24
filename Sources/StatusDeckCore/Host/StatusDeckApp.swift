@@ -108,7 +108,7 @@ final class HostController: DeckHost {
     private var statusBar: StatusBarController?
     private let hud = HUDController()
     private let hotKeys = HotKeyCenter()
-    private var settingsWindow: NSWindow?
+    private var settingsWindow: SettingsWindowController?
     private var settingsSelection = SettingsSelectionModel()
     private var appearanceCancellable: AnyCancellable?
 
@@ -144,7 +144,7 @@ final class HostController: DeckHost {
         appearanceCancellable = state.$appearance.sink { [weak self] appearance in
             MainActor.assumeIsolated {
                 FloatingPanel.sharedAppearance = appearance.nsAppearance
-                self?.settingsWindow?.appearance = appearance.nsAppearance
+                self?.settingsWindow?.window?.appearance = appearance.nsAppearance
             }
         }
     }
@@ -213,10 +213,9 @@ final class HostController: DeckHost {
             window.isReleasedWhenClosed = false
             window.appearance = state.appearance.nsAppearance
             window.center()
-            settingsWindow = window
+            settingsWindow = SettingsWindowController(window: window, showsDockIcon: !isDryRun)
         }
-        NSApp.activate(ignoringOtherApps: true)
-        settingsWindow?.makeKeyAndOrderFront(nil)
+        settingsWindow?.showWindow(nil)
     }
 
     func pluginContentDidChange() {

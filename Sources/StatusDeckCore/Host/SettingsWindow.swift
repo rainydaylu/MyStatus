@@ -321,28 +321,6 @@ private struct GeneralSettings: View {
                     Text(DeckL("5 秒")).tag(5.0)
                 }
             }
-            Section(DeckL("权限", "Permissions")) {
-                LabeledContent(DeckL("风扇与低电量模式", "Fans and Low Power Mode")) {
-                    if authorization.isAuthorized {
-                        Label(DeckL("已授权", "Authorized"), systemImage: "checkmark.circle")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Button(DeckL("一次授权…", "Authorize once…")) { authorization.authorize() }
-                            .disabled(authorization.isAuthorizing)
-                    }
-                }
-                if let error = authorization.error {
-                    Text(error).font(.footnote).foregroundStyle(.orange)
-                }
-                Text(DeckL("两项系统控制共用一次管理员授权。以下隐私权限由 macOS 单独管理，按需开启。", "Both system controls share one administrator approval. macOS manages the privacy permissions below separately; enable them as needed."))
-                    .font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                permissionLink(DeckL("蓝牙设备控制", "Bluetooth device control"), pane: .bluetoothPrivacy)
-                permissionLink(DeckL("定位 · Wi-Fi 名称", "Location · Wi-Fi names"), pane: .location)
-                permissionLink(DeckL("辅助功能 · 媒体键", "Accessibility · media keys"), pane: .accessibility)
-                permissionLink(DeckL("输入监控 · 亮度键", "Input Monitoring · brightness keys"), pane: .inputMonitoring)
-                permissionLink(DeckL("系统录音 · 软件音量", "System audio recording · software volume"), pane: .systemAudioRecording)
-                permissionLink(DeckL("其他隐私设置", "Other privacy settings"), pane: .privacy)
-            }
             Section(DeckL("语言", "Language")) {
                 Picker(DeckL("界面语言", "Interface language"), selection: $language) {
                     ForEach(DeckLanguage.allCases, id: \.rawValue) { option in
@@ -394,6 +372,28 @@ private struct GeneralSettings: View {
                         glow = 0
                     }
                 }
+            }
+            Section(DeckL("权限", "Permissions")) {
+                LabeledContent(DeckL("风扇与低电量模式", "Fans and Low Power Mode")) {
+                    if authorization.isAuthorized {
+                        Label(DeckL("已授权", "Authorized"), systemImage: "checkmark.circle")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Button(DeckL("一次授权…", "Authorize once…")) { authorization.authorize() }
+                            .disabled(authorization.isAuthorizing)
+                    }
+                }
+                if let error = authorization.error {
+                    Text(error).font(.footnote).foregroundStyle(.orange)
+                }
+                Text(DeckL("两项系统控制共用一次管理员授权。以下隐私权限由 macOS 单独管理，按需开启。", "Both system controls share one administrator approval. macOS manages the privacy permissions below separately; enable them as needed."))
+                    .font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                permissionLink(DeckL("蓝牙设备控制", "Bluetooth device control"), pane: .bluetoothPrivacy)
+                permissionLink(DeckL("定位 · Wi-Fi 名称", "Location · Wi-Fi names"), pane: .location)
+                permissionLink(DeckL("辅助功能 · 媒体键", "Accessibility · media keys"), pane: .accessibility)
+                permissionLink(DeckL("输入监控 · 亮度键", "Input Monitoring · brightness keys"), pane: .inputMonitoring)
+                permissionLink(DeckL("系统录音 · 软件音量", "System audio recording · software volume"), pane: .systemAudioRecording)
+                permissionLink(DeckL("其他隐私设置", "Other privacy settings"), pane: .privacy)
             }
             Section(DeckL("第三方插件")) {
                 Text(DeckL("把 .deckplugin 文件夹放进插件文件夹，再点“重新扫描”。新插件默认关闭，启用前会先询问。"))
